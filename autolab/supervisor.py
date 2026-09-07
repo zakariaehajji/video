@@ -50,20 +50,33 @@ WATCH_ROOTS = [
 ]
 
 
-def find_agent() -> str:
+def find_agent() -> list[str]:
+    """Return argv prefix that launches Cursor Agent reliably on Windows."""
     from shutil import which
 
-    # Prefer refreshed PATH; fall back to known Windows install location.
-    path = which("agent")
-    if path:
-        return path
-    candidates = [
-        Path.home() / "AppData" / "Local" / "cursor-agent" / "agent.cmd",
-        Path.home() / "AppData" / "Local" / "cursor-agent" / "agent.exe",
-    ]
-    for c in candidates:
-        if c.exists():
-            return str(c)
+    version_root = Path.home() / "AppData" / "Local" / "cursor-agent" / "versions"
+    if version_root.exists():
+        version_dirs = sorted(
+            [p for p in version_root.iterdir() if p.is_dir()],
+            key=lambda p: p.name,
+            reverse=True,
+        )
+        for vd in version_dirs:
+            node = vd / "node.exe"
+            index = vd / "index.js"
+            if node.exists() and index.exists():
+                return [str(node), str(index)]
+
+    # Fallbacks (less reliable for long -p prompts on Windows)
+    for name in ("agent.cmd", "agent"):
+        path = which(name)
+        if path:
+            return [path]
+
+    cmd = Path.home() / "AppData" / "Local" / "cursor-agent" / "agent.cmd"
+    if cmd.exists():
+        return [str(cmd)]
+
     raise FileNotFoundError(
         "Cursor Agent CLI not found. Install with: "
         "irm 'https://cursor.com/install?win32=true' | iex"
@@ -309,12 +322,33 @@ def run_cycle(
         / f"agent_{cycle:03d}.log"
     )
 
+    # Never put the full cycle brief on the Windows command line.
+    # Write it to disk and pass a short pointer prompt instead.
+    prompt_path = (
+        SESSION_DIR
+        / f"prompt_{cycle:03d}.txt"
+    )
+    prompt_path.write_text(
+        prompt,
+        encoding="utf-8",
+    )
+
+    short_prompt = (
+        f"Open and follow EVERY instruction in this file exactly: "
+        f"{prompt_path.as_posix()}. "
+        f"Then do the real work described there and EXIT when finished."
+    )
+
     log(
         f"Launching Agent cycle {cycle}"
     )
 
     log(
         f"Output: {output_path}"
+    )
+
+    log(
+        f"Prompt file: {prompt_path}"
     )
 
     before = snapshot()
@@ -326,16 +360,16 @@ def run_cycle(
         encoding="utf-8",
     ) as output:
 
-        agent_bin = find_agent()
-        log(f"Agent binary: {agent_bin}")
+        agent_argv = find_agent()
+        log(f"Agent binary: {' '.join(agent_argv)}")
 
         process = subprocess.Popen(
             [
-                agent_bin,
+                *agent_argv,
                 "--trust",
                 "--force",
                 "-p",
-                prompt,
+                short_prompt,
                 "--output-format",
                 "text",
             ],
@@ -343,7 +377,6 @@ def run_cycle(
             stdout=output,
             stderr=subprocess.STDOUT,
             text=True,
-            shell=False,
         )
 
     log(
