@@ -29,6 +29,7 @@ def run_cursor_agent(
         "agent",
         "-p",
         prompt,
+        "--trust",
         "--force",
         "--output-format",
         "text",

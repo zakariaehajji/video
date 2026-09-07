@@ -24,6 +24,7 @@ Visulization/
 exp/
 .claude/
 exp*
+!autolab/experiment_manager.py
 test*
 paper_results/
 src/video/preprocess/AutoShot

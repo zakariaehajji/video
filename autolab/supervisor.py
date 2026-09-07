@@ -91,6 +91,7 @@ def run_one_agent_session(agent: str, prompt: str, iteration: int) -> int:
         agent,
         "-p",
         prompt,
+        "--trust",
         "--force",
         "--output-format",
         "text",
