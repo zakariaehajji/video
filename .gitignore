@@ -42,4 +42,17 @@ resource/subtitle/*
 src/config_my.py
 asset/demo_compressed
 ProVideo
-CLAUDE.md
+CLAUDE.md# Secrets — never commit
+.env
+.env.*
+!.env.example
+autolab/.env
+.venv/
+__pycache__/
+*.pyc
+
+# Autolab runtime
+autolab/state/lab.db
+autolab/state/lab_state.json
+autolab/state/task_queue.json
+autolab/results/*.mp4

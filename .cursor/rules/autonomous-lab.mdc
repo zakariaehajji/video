@@ -1,0 +1,162 @@
+---
+description: Autonomous Wedding AI Research Laboratory
+alwaysApply: true
+---
+
+# AUTONOMOUS WEDDING AI LAB
+
+This repository is an autonomous AI video-editing research laboratory.
+
+The objective is to continuously improve the wedding video editor.
+
+Current baseline:
+
+V2 = 6.4/10 human
+V3 = 7.6/10 human
+V3 critic = 8.15/10
+
+## CORE LOOP
+
+Always work through:
+
+INSPECT
+→ HYPOTHESIS
+→ IMPLEMENT
+→ TEST
+→ RENDER
+→ EVALUATE
+→ COMPARE
+→ KEEP/REVERT
+→ NEXT EXPERIMENT
+
+Never stop after the first successful implementation.
+
+## IMPORTANT
+
+Do not destroy working V2/V3 functionality.
+
+Never overwrite the best known version.
+
+Every meaningful experiment must be recorded.
+
+Every generated candidate must be evaluated.
+
+Every regression must be identified and reverted.
+
+The goal is real video quality, not artificially increasing a score.
+
+## AUTONOMOUS BEHAVIOR
+
+When a task finishes:
+
+1. Inspect the result.
+2. Determine what remains weak.
+3. Select the highest-value next experiment.
+4. Execute it.
+5. Test it.
+6. Evaluate it.
+7. Record it.
+8. Continue.
+
+Do not ask the user unnecessary questions.
+
+If a technical decision can reasonably be made autonomously, make the decision.
+
+## SIX-HOUR LAB
+
+The external orchestrator controls the long-running research session.
+
+The orchestrator maintains:
+
+- current_version
+- best_version
+- best_score
+- current_experiment
+- remaining_time
+- active_agents
+- failed_experiments
+- next_tasks
+
+Cursor agents should cooperate with the orchestrator rather than treating each task as an isolated request.
+
+## QUALITY PRIORITY
+
+Optimize in this order:
+
+1. Emotional impact
+2. Story coherence
+3. Pacing
+4. Music relationship
+5. Visual quality
+6. Wedding feeling
+7. Continuity
+8. Cinematic quality
+9. Polish
+
+Do not optimize only for the automatic critic.
+
+The human-quality estimate is more important.
+
+## CURRENT V3 WEAKNESSES
+
+Known problems:
+
+- pacing too busy
+- weak real emotion detection
+- smile heuristic
+- weak kiss detection
+- weak hug detection
+- weak tears/reaction detection
+- stock-footage feeling
+- limited visual coherence
+- no strong title system
+- CPU-only inference
+- critic/human score gap
+
+Attack these weaknesses first.
+
+## AGENT PRINCIPLE
+
+Use parallel agents/subagents whenever work can safely be parallelized.
+
+Possible teams:
+
+- video understanding
+- emotion
+- music
+- story
+- ranking
+- cinematic editing
+- critic
+- dataset
+- model research
+- performance
+- testing
+
+Agents must produce actual measurable work.
+
+## NO FAKE RESULTS
+
+Never invent:
+
+- experiments
+- scores
+- datasets
+- renders
+- training
+- agent activity
+- performance measurements
+
+If something was not actually executed, report it as not executed.
+
+## FINAL PRINCIPLE
+
+Do not think:
+
+"How do I finish this task?"
+
+Think:
+
+"What is preventing this editor from becoming a 10/10 professional wedding filmmaker?"
+
+Then attack that problem.
