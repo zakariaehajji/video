@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any
 
 from wedding_v3.music import MusicAnalysis
 from wedding_v3.shots import Shot
+
+# V5 experiment gate: set WEDDING_V3_PACE_HOLD=1 to enforce min shot holds.
+# Default off so V4_xfade and baseline V3 behavior stay comparable.
+PACE_HOLD_FLOOR = os.environ.get("WEDDING_V3_PACE_HOLD", "0").strip() in ("1", "true", "yes")
 
 
 ARC_BY_SECTION = {
@@ -80,34 +85,70 @@ def plan_story(
 
         energy = float(sec.get("mean_energy", _section_energy(analysis, s0, s1)))
         if style == "emotional":
-            base = 2.4 if label in ("intro", "outro") else 1.7
+            # Longer holds: V3 emotional pacing felt busy / stock-footage-like.
+            if PACE_HOLD_FLOOR:
+                # V5: raise bases so intro isn't a spray of ~0.7s cuts.
+                # Target mean hold ~1.5–2.0s (avoid critic "too slow" >2.35).
+                base = 2.9 if label in ("intro", "outro") else 2.15
+                min_dur = 1.4 if label in ("intro", "outro", "build") else 1.2
+            else:
+                base = 2.85 if label in ("intro", "outro") else 2.05
+                min_dur = 0.7
         elif style == "energetic":
             base = 1.9 if label in ("intro", "outro") else 1.25
+            min_dur = 0.85 if PACE_HOLD_FLOOR else 0.7
         else:
             base = 2.6 if label in ("intro", "outro") else 1.9 if label == "build" else 1.55
+            min_dur = (1.2 if label in ("intro", "outro") else 1.05) if PACE_HOLD_FLOOR else 0.7
 
         if energy > 0.7:
             base *= 0.9
         if label == "peak":
-            base = min(base, 1.35)
+            if PACE_HOLD_FLOOR:
+                base = min(base, 1.55 if style == "emotional" else 1.35)
+                min_dur = min(min_dur, 1.0 if style == "emotional" else 0.85)
+            else:
+                base = min(base, 1.45 if style == "emotional" else 1.35)
 
         t = s0
         idx = 0
         while t < s1 - 0.45:
             role = prefs[idx % len(prefs)]
             dur = base
-            future_beats = [b for b in beat_times if b > t + 0.5]
-            if future_beats:
-                gap = future_beats[0] - t
-                if 0.7 <= gap <= 2.8:
-                    dur = gap
+            if PACE_HOLD_FLOOR:
+                # Snap only when gap is long enough to hold (no micro-cut sprays).
+                future_beats = [b for b in beat_times if b > t + min_dur]
+                if future_beats:
+                    gap = future_beats[0] - t
+                    if min_dur <= gap <= max(2.8, base + 0.4):
+                        dur = gap
+                dur = max(dur, min_dur)
+            else:
+                future_beats = [b for b in beat_times if b > t + 0.5]
+                if future_beats:
+                    gap = future_beats[0] - t
+                    if 0.7 <= gap <= 2.8:
+                        dur = gap
             end = min(s1, t + dur)
-            if end - t < 0.55:
+            if end - t < (min(0.55, min_dur * 0.55) if PACE_HOLD_FLOOR else 0.55):
                 break
+            if PACE_HOLD_FLOOR:
+                rem = s1 - end
+                if 0 < rem < min_dur * 0.75:
+                    end = s1
 
             near_peak = any(abs((t + end) / 2 - p) < 1.2 for p in peaks) or label == "peak"
-            want_slow = near_peak and role in ("couple", "portrait") and energy > 0.45
-            want_xfade = label in ("intro", "outro", "build") and energy < 0.55 and style != "energetic"
+            # Intro/outro stay soft for dissolves; don't mark them peak from nearby music peaks.
+            is_peak = label == "peak" or (
+                near_peak and label in ("chorus", "verse", "build")
+            )
+            want_slow = is_peak and role in ("couple", "portrait") and energy > 0.45
+            want_xfade = (
+                label in ("intro", "outro", "build")
+                and energy < 0.55
+                and style != "energetic"
+                and not is_peak
+            )
 
             beats.append(
                 PlannedBeat(
@@ -119,7 +160,7 @@ def plan_story(
                     energy=round(energy, 4),
                     want_slowmo=want_slow,
                     want_xfade=want_xfade,
-                    is_peak=near_peak or label == "peak",
+                    is_peak=is_peak,
                 )
             )
             t = end

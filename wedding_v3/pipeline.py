@@ -27,6 +27,7 @@ def run_candidates(
     profiles: list[str] | None = None,
     render_top: int = 3,
     tag: str = "run",
+    out_root: Path | str | None = None,
 ) -> dict:
     audio = Path(audio)
     if shots is None:
@@ -45,7 +46,8 @@ def run_candidates(
     styles = styles or ["classic", "emotional", "energetic"]
     profiles = profiles or list(WEIGHT_PROFILES.keys())
 
-    run_dir = OUT_DIR / tag
+    base_out = Path(out_root) if out_root is not None else OUT_DIR
+    run_dir = base_out / tag
     plans_dir = run_dir / "plans"
     builds_dir = run_dir / "builds"
     plans_dir.mkdir(parents=True, exist_ok=True)

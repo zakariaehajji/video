@@ -38,9 +38,79 @@ class FrameMoment:
     face_count: int
     sharpness: float
     quality: float
+    kiss: float = 0.0
+    hug: float = 0.0
+    reaction: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def proximity_intimacy(faces: np.ndarray, frame_shape: tuple[int, ...]) -> tuple[float, float]:
+    """Estimate kiss/hug likelihood from multi-face geometry (YuNet boxes).
+
+    kiss: two faces very close (centers near, overlapping / tiny gap).
+    hug: two faces close with similar scale (embrace / cheek-to-cheek).
+    Pure geometry — no paid APIs.
+    """
+    if faces is None or len(faces) < 2:
+        return 0.0, 0.0
+    h, w = frame_shape[:2]
+    diag = float(np.hypot(w, h)) or 1.0
+    boxes = []
+    for face in faces:
+        x, y, fw, fh = [float(v) for v in face[:4]]
+        if fw <= 1 or fh <= 1:
+            continue
+        cx, cy = x + fw * 0.5, y + fh * 0.5
+        boxes.append((cx, cy, fw, fh, fw * fh))
+    if len(boxes) < 2:
+        return 0.0, 0.0
+
+    best_kiss = 0.0
+    best_hug = 0.0
+    for i in range(len(boxes)):
+        for j in range(i + 1, len(boxes)):
+            ax, ay, aw, ah, aa = boxes[i]
+            bx, by, bw, bh, ba = boxes[j]
+            dist = float(np.hypot(ax - bx, ay - by))
+            mean_size = 0.5 * (max(aw, ah) + max(bw, bh))
+            # Normalized gap: 0 = centers as close as one face-width.
+            gap = dist / max(mean_size, 1.0)
+            scale_ratio = min(aa, ba) / max(aa, ba, 1.0)
+            # Horizontal bias (faces side-by-side) favors hug/kiss over stacked crowd.
+            horiz = abs(ax - bx) / max(dist, 1.0)
+            vert = abs(ay - by) / max(dist, 1.0)
+
+            kiss = _clip01((1.15 - gap) / 0.55) * _clip01(scale_ratio / 0.55)
+            kiss *= _clip01(0.55 + 0.45 * horiz)
+            # Extra boost when face boxes nearly touch / overlap.
+            if gap < 0.85:
+                kiss = _clip01(kiss + 0.25)
+            if gap < 0.55:
+                kiss = _clip01(kiss + 0.2)
+
+            hug = _clip01((1.55 - gap) / 0.85) * _clip01(scale_ratio / 0.45)
+            hug *= _clip01(0.4 + 0.6 * horiz)
+            # Mild penalty if faces are tiny in frame (crowd / background).
+            size_frac = mean_size / diag
+            hug *= _clip01((size_frac - 0.04) / 0.08)
+            kiss *= _clip01((size_frac - 0.05) / 0.07)
+            # Vertical stack (one above other) is less likely a kiss.
+            if vert > 0.75 and horiz < 0.35:
+                kiss *= 0.35
+                hug *= 0.55
+
+            best_kiss = max(best_kiss, kiss)
+            best_hug = max(best_hug, hug)
+    return best_kiss, best_hug
+
+
+def reaction_score(smile: float, face_count: int, quality: float) -> float:
+    """Guest/reaction cue: visible face + smile without requiring couple proximity."""
+    if face_count < 1:
+        return 0.0
+    return _clip01(0.55 * smile + 0.25 * _clip01(face_count / 2.0) + 0.20 * quality)
 
 
 def _download(url: str, dest: Path) -> None:
@@ -258,11 +328,23 @@ def analyze_frame(
         mp_smile = backend.smile_mediapipe(frame_bgr)
         smile = _clip01(0.55 * smile + 0.45 * mp_smile)
 
-    # Favor visible faces, genuine smiles, and usable frames.
+    kiss, hug = proximity_intimacy(faces, frame_bgr.shape)
+    reaction = reaction_score(smile, face_count, quality)
+
+    # Favor smiles, intimacy (kiss/hug), visible faces, usable frames.
     face_presence = _clip01(face_count / 2.0)
+    intimacy = max(kiss, hug * 0.85)
     emotion = _clip01(
-        0.40 * smile + 0.20 * face_presence + 0.25 * quality + 0.15 * min(face_count, 3) / 3.0
+        0.32 * smile
+        + 0.22 * intimacy
+        + 0.16 * face_presence
+        + 0.18 * quality
+        + 0.12 * min(face_count, 3) / 3.0
     )
+    # Kiss/hug frames are wedding-critical even if smile heuristic is weak.
+    if kiss >= 0.45 or hug >= 0.55:
+        emotion = _clip01(max(emotion, 0.55 * emotion + 0.45 * intimacy + 0.08))
+
     return FrameMoment(
         t=float(t),
         emotion_score=emotion,
@@ -270,6 +352,9 @@ def analyze_frame(
         face_count=face_count,
         sharpness=sharp,
         quality=quality,
+        kiss=kiss,
+        hug=hug,
+        reaction=reaction,
     )
 
 

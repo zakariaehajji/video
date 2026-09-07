@@ -25,6 +25,7 @@ def run_cursor_agent(
     timeout: int = 3600,
 ):
 
+    # Keep CLI prompt short on Windows (CreateProcess arg limit).
     command = [
         "agent",
         "-p",
@@ -75,9 +76,16 @@ def run_cursor_agent(
 
 def main():
 
-    # Prefer the full start brief; fall back to master prompt.
-    path = START_PROMPT_FILE if START_PROMPT_FILE.exists() else PROMPT_FILE
-    prompt = path.read_text(encoding="utf-8")
+    # Point Agent at the on-disk briefs instead of inlining them.
+    prompt = (
+        "START WORK NOW as the Wedding AI AutoLab execution agent.\n"
+        "Read and obey autolab/prompts/START_6H_LAB.md and "
+        "autolab/prompts/MASTER_AUTONOMOUS_LAB.md.\n"
+        "Use wedding-autolab MCP tools when available.\n"
+        "Protect V3 BEST output. Write candidates under Output/autolab/.\n"
+        "Real renders + evaluations only. Continue past V4.\n"
+        "Do not ask questions. Begin immediately.\n"
+    )
 
     result = run_cursor_agent(prompt)
 
@@ -86,7 +94,7 @@ def main():
             {
                 "success": result["return_code"] == 0,
                 "return_code": result["return_code"],
-                "prompt_file": str(path),
+                "prompt_file": str(START_PROMPT_FILE if START_PROMPT_FILE.exists() else PROMPT_FILE),
             },
             indent=2,
         )

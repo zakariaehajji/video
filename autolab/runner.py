@@ -116,6 +116,11 @@ def run_pipeline(config: dict[str, Any] | None = None) -> dict[str, Any]:
         audio = mp3s[0]
 
     tag = config.get("tag", f"autolab_{int(time.time())}")
+    out_root = config.get("out_root")
+    if out_root:
+        out_root = Path(out_root)
+        if not out_root.is_absolute():
+            out_root = ROOT / out_root
     t0 = time.time()
     try:
         result = run_candidates(
@@ -124,9 +129,10 @@ def run_pipeline(config: dict[str, Any] | None = None) -> dict[str, Any]:
             profiles=config.get("profiles"),
             render_top=int(config.get("render_top", 2)),
             tag=tag,
+            out_root=out_root,
         )
         runtime = time.time() - t0
-        run_dir = ROOT / "Output" / "wedding_v3" / tag
+        run_dir = (out_root if out_root else ROOT / "Output" / "wedding_v3") / tag
         return {
             "ok": True,
             "runtime": runtime,

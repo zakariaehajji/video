@@ -111,6 +111,24 @@ def score_shot(
     if beat.is_peak and shot.smile > 0.35 and shot.faces >= 1:
         peak = min(1.0, peak + 0.25)
         reasons.append("smile-on-peak")
+    # Real intimacy > smile-only heuristic for peak / couple moments.
+    kiss = float(getattr(shot, "kiss", 0.0) or 0.0)
+    hug = float(getattr(shot, "hug", 0.0) or 0.0)
+    reaction = float(getattr(shot, "reaction", 0.0) or 0.0)
+    if beat.is_peak and kiss >= 0.40:
+        peak = min(1.0, peak + 0.35)
+        emotion = min(1.0, emotion + 0.12)
+        reasons.append("kiss-on-peak")
+    elif beat.is_peak and hug >= 0.50:
+        peak = min(1.0, peak + 0.22)
+        emotion = min(1.0, emotion + 0.08)
+        reasons.append("hug-on-peak")
+    if beat.role in ("couple", "portrait") and (kiss >= 0.35 or hug >= 0.45):
+        story = min(1.0, story + 0.12)
+        reasons.append("intimacy-role-fit")
+    if beat.section in ("chorus", "peak", "outro") and reaction >= 0.55 and shot.faces >= 1:
+        emotion = min(1.0, emotion + 0.06)
+        reasons.append("reaction-cutaway")
 
     w = weights
     total = (

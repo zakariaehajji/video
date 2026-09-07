@@ -1,176 +1,633 @@
-"""
-Persistent AutoLab supervisor: owns the research clock and relaunches Cursor Agent.
-
-This is NOT a fake timer. Each agent session may exit; the supervisor relaunches
-until the deadline, while protecting V3 and recording logs.
-
-Usage:
-  .\\.venv\\Scripts\\python.exe autolab\\supervisor.py --hours 6
-"""
-
-from __future__ import annotations
-
-import argparse
 import json
+import os
 import subprocess
+import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
+
 ROOT = Path(__file__).resolve().parent.parent
-PROMPTS = ROOT / "autolab" / "prompts"
-RESULTS = ROOT / "autolab" / "results"
-LOG_DIR = RESULTS / "session_logs"
 
-START_PROMPT = PROMPTS / "START_6H_LAB.md"
-MASTER_PROMPT = PROMPTS / "MASTER_AUTONOMOUS_LAB.md"
+LOG_DIR = (
+    ROOT
+    / "autolab"
+    / "results"
+    / "session_logs"
+)
 
+LOG_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
 
-def log(msg: str) -> None:
-    line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
-    print(line, flush=True)
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    with (LOG_DIR / "supervisor.log").open("a", encoding="utf-8") as f:
-        f.write(line + "\n")
+SESSION_DIR = (
+    LOG_DIR
+    / datetime.now().strftime(
+        "%Y%m%d_%H%M%S"
+    )
+)
 
-
-def find_agent() -> str:
-    from shutil import which
-
-    path = which("agent")
-    if path:
-        return path
-    candidate = Path.home() / "AppData" / "Local" / "cursor-agent" / "agent.cmd"
-    if candidate.exists():
-        return str(candidate)
-    raise FileNotFoundError("Cursor Agent CLI 'agent' not found on PATH")
+SESSION_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
 
 
-def agent_logged_in(agent: str) -> bool:
+SESSION_HOURS = 6
+
+AGENT_MAX_SECONDS = 45 * 60
+
+IDLE_TIMEOUT_SECONDS = 8 * 60
+
+RESTART_DELAY = 5
+
+
+WATCH_ROOTS = [
+    ROOT / "wedding_v3",
+    ROOT / "Output",
+    ROOT / "autolab",
+]
+
+
+def log(message):
+
+    text = (
+        f"[{datetime.now():%Y-%m-%d %H:%M:%S}] "
+        f"{message}"
+    )
+
+    print(
+        text,
+        flush=True,
+    )
+
+    with (
+        SESSION_DIR
+        / "supervisor.log"
+    ).open(
+        "a",
+        encoding="utf-8",
+    ) as f:
+
+        f.write(
+            text + "\n"
+        )
+
+
+def snapshot():
+
+    result = {}
+
+    for root in WATCH_ROOTS:
+
+        if not root.exists():
+            continue
+
+        try:
+
+            for path in root.rglob("*"):
+
+                if not path.is_file():
+                    continue
+
+                # Skip noisy/volatile paths
+                p = str(path).replace("\\", "/").lower()
+                if "/session_logs/" in p:
+                    continue
+                if p.endswith(".pyc") or "/__pycache__/" in p:
+                    continue
+
+                try:
+
+                    stat = path.stat()
+
+                    result[str(path)] = (
+                        stat.st_mtime_ns,
+                        stat.st_size,
+                    )
+
+                except OSError:
+                    pass
+
+        except Exception:
+            pass
+
+    return result
+
+
+def changed(
+    before,
+    after,
+):
+
+    return before != after
+
+
+def git_status():
+
     try:
-        proc = subprocess.run(
-            [agent, "status"],
+
+        result = subprocess.run(
+            [
+                "git",
+                "status",
+                "--short",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        return result.stdout.strip()
+
+    except Exception:
+
+        return ""
+
+
+def checkpoint(message):
+
+    try:
+
+        status = git_status()
+
+        if not status:
+            return
+
+        subprocess.run(
+            [
+                "git",
+                "add",
+                "-A",
+            ],
+            cwd=ROOT,
+            timeout=60,
+        )
+
+        result = subprocess.run(
+            [
+                "git",
+                "commit",
+                "-m",
+                message,
+            ],
+            cwd=ROOT,
             capture_output=True,
             text=True,
             timeout=60,
-            check=False,
         )
-        text = (proc.stdout or "") + (proc.stderr or "")
-        return "Not logged in" not in text and proc.returncode == 0
-    except Exception as e:  # noqa: BLE001
-        log(f"status check failed: {e}")
-        return False
+
+        if result.returncode == 0:
+
+            log(
+                f"Checkpoint: {message}"
+            )
+
+        else:
+
+            log(
+                "Checkpoint failed: "
+                + result.stderr[-500:]
+            )
+
+    except Exception as exc:
+
+        log(
+            f"Checkpoint exception: {exc}"
+        )
 
 
-def build_continue_prompt(iteration: int, remaining_sec: float) -> str:
-    master = MASTER_PROMPT.read_text(encoding="utf-8") if MASTER_PROMPT.exists() else ""
-    start = START_PROMPT.read_text(encoding="utf-8") if START_PROMPT.exists() else ""
-    hours_left = remaining_sec / 3600.0
-    return (
-        f"{start}\n\n"
-        f"---\n"
-        f"# SUPERVISOR RELAUNCH #{iteration}\n"
-        f"Remaining research window: {hours_left:.2f} hours.\n"
-        f"You may have been restarted because a previous agent session ended.\n"
-        f"DO NOT restart from scratch if progress already exists.\n"
-        f"Inspect Output/autolab/, autolab/state/, wedding_v3/, and experiment logs.\n"
-        f"Resume at the highest-value unfinished experiment.\n"
-        f"Continue V4→V5→V6… only with real renders + evaluations.\n"
-        f"Never overwrite Output/wedding_v3/BEST_v3.mp4 without archiving.\n"
-        f"Use wedding-autolab MCP tools when available.\n\n"
-        f"---\n"
-        f"# MASTER RULES\n"
-        f"{master}\n"
+def prompt_for_cycle(
+    cycle,
+    remaining,
+):
+
+    return f"""
+You are the execution agent for the autonomous Wedding AI Lab.
+
+CYCLE: {cycle}
+
+REMAINING SESSION TIME:
+{remaining / 3600:.2f} hours
+
+You MUST perform actual work in this cycle.
+
+Read:
+
+autolab/prompts/MASTER_AUTONOMOUS_LAB.md
+autolab/prompts/START_6H_LAB.md
+.cursor/rules/autonomous-lab.mdc
+
+Inspect the current repository and AutoLab state.
+
+Use wedding-autolab MCP when useful.
+
+DO NOT merely describe a solution.
+
+DO NOT wait for the user.
+
+DO NOT only create a plan.
+
+Choose ONE highest-value experiment that can genuinely be executed now.
+
+Then:
+
+1. implement it
+2. run relevant commands/tests
+3. render a real candidate when appropriate
+4. evaluate the result
+5. compare against the current best
+6. keep or reject based on evidence
+7. record the experiment
+8. leave the repository coherent
+
+If the previous cycle failed, diagnose and recover.
+
+Never invent results.
+
+Never claim a render happened unless a real output file exists.
+
+Never overwrite V3 or the current best.
+
+When the experiment is genuinely finished, EXIT.
+
+Your final response must contain:
+
+EXPERIMENT:
+FILES_CHANGED:
+COMMANDS_RUN:
+RENDER:
+EVALUATION:
+SCORE:
+DECISION:
+REMAINING_WEAKNESS:
+NEXT_EXPERIMENT:
+
+Do not sit waiting for another prompt.
+"""
+
+
+def run_cycle(
+    cycle,
+    deadline,
+):
+
+    remaining = (
+        deadline
+        - time.time()
     )
 
+    prompt = prompt_for_cycle(
+        cycle,
+        remaining,
+    )
 
-def run_one_agent_session(agent: str, prompt: str, iteration: int) -> int:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = LOG_DIR / f"agent_iter_{iteration:03d}.log"
-    log(f"Launching agent session #{iteration} → {out_path}")
-    cmd = [
-        agent,
-        "-p",
-        prompt,
-        "--trust",
-        "--force",
-        "--output-format",
-        "text",
-    ]
-    with out_path.open("w", encoding="utf-8") as out:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(ROOT),
-            stdout=out,
+    output_path = (
+        SESSION_DIR
+        / f"agent_{cycle:03d}.log"
+    )
+
+    log(
+        f"Launching Agent cycle {cycle}"
+    )
+
+    log(
+        f"Output: {output_path}"
+    )
+
+    before = snapshot()
+
+    start = time.time()
+
+    with output_path.open(
+        "w",
+        encoding="utf-8",
+    ) as output:
+
+        process = subprocess.Popen(
+            [
+                "agent",
+                "--trust",
+                "--force",
+                "-p",
+                prompt,
+                "--output-format",
+                "text",
+            ],
+            cwd=ROOT,
+            stdout=output,
             stderr=subprocess.STDOUT,
             text=True,
         )
+
+    log(
+        f"Agent PID: {process.pid}"
+    )
+
+    last_log_size = 0
+
+    last_real_activity = start
+
+    last_heartbeat_minute = -1
+
+    while True:
+
+        now = time.time()
+
+        # ---------------------------------------------
+        # Session deadline
+        # ---------------------------------------------
+
+        if now >= deadline:
+
+            log(
+                "Session deadline reached."
+            )
+
+            try:
+                process.kill()
+            except Exception:
+                pass
+
+            return "SESSION_DEADLINE"
+
+        # ---------------------------------------------
+        # Agent maximum cycle time
+        # ---------------------------------------------
+
+        if now - start >= AGENT_MAX_SECONDS:
+
+            log(
+                "Agent exceeded maximum cycle time."
+            )
+
+            try:
+                process.kill()
+            except Exception:
+                pass
+
+            return "AGENT_TIMEOUT"
+
+        # ---------------------------------------------
+        # Check process
+        # ---------------------------------------------
+
+        code = process.poll()
+
+        # ---------------------------------------------
+        # Check output activity
+        # ---------------------------------------------
+
         try:
-            return proc.wait(timeout=None)
-        except KeyboardInterrupt:
-            proc.terminate()
-            raise
 
+            log_size = (
+                output_path.stat().st_size
+            )
 
-def run_supervisor(hours: float = 6.0, max_iterations: int | None = None) -> None:
-    agent = find_agent()
-    if not agent_logged_in(agent):
-        raise SystemExit(
-            "Cursor Agent is not logged in. Run: agent login\n"
-            "Then re-run the supervisor."
+        except OSError:
+
+            log_size = 0
+
+        if log_size != last_log_size:
+
+            last_log_size = log_size
+
+            last_real_activity = now
+
+            log(
+                f"Agent output activity: "
+                f"{log_size} bytes"
+            )
+
+        # ---------------------------------------------
+        # Check filesystem activity
+        # ---------------------------------------------
+
+        after = snapshot()
+
+        if changed(
+            before,
+            after,
+        ):
+
+            before = after
+
+            last_real_activity = now
+
+            log(
+                "REAL FILE ACTIVITY detected."
+            )
+
+        # ---------------------------------------------
+        # Agent finished
+        # ---------------------------------------------
+
+        if code is not None:
+
+            duration = (
+                now - start
+            )
+
+            log(
+                f"Agent exited: "
+                f"code={code}, "
+                f"duration={duration:.1f}s"
+            )
+
+            return (
+                "SUCCESS"
+                if code == 0
+                else "FAILED"
+            )
+
+        # ---------------------------------------------
+        # Idle watchdog
+        # ---------------------------------------------
+
+        idle = (
+            now
+            - last_real_activity
         )
 
-    deadline = time.time() + hours * 3600
-    log(f"Supervisor started. Deadline in {hours:.2f}h. Agent={agent}")
-    RESULTS.mkdir(parents=True, exist_ok=True)
-    (RESULTS / "session_meta.json").write_text(
-        json.dumps(
-            {
-                "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                "hours": hours,
-                "deadline_epoch": deadline,
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
+        if idle >= IDLE_TIMEOUT_SECONDS:
+
+            log(
+                f"Agent appears stuck. "
+                f"No output/file activity for "
+                f"{idle / 60:.1f} minutes."
+            )
+
+            try:
+                process.kill()
+            except Exception:
+                pass
+
+            return "IDLE_KILLED"
+
+        # ---------------------------------------------
+        # Heartbeat
+        # ---------------------------------------------
+
+        minute = int((now - start) // 60)
+
+        if minute != last_heartbeat_minute:
+
+            last_heartbeat_minute = minute
+
+            log(
+                f"Heartbeat: "
+                f"cycle={cycle}, "
+                f"runtime={(now-start)/60:.1f}m, "
+                f"idle={idle/60:.1f}m"
+            )
+
+        time.sleep(2)
+
+
+def main():
+
+    hours = SESSION_HOURS
+
+    if (
+        len(sys.argv) >= 3
+        and sys.argv[1] == "--hours"
+    ):
+
+        hours = float(
+            sys.argv[2]
+        )
+
+    started = time.time()
+
+    deadline = (
+        started
+        + hours * 3600
     )
 
-    iteration = 0
+    log(
+        "========================================"
+    )
+
+    log(
+        "AUTOLAB SUPERVISOR"
+    )
+
+    log(
+        f"Duration: {hours} hours"
+    )
+
+    log(
+        f"Deadline: "
+        f"{datetime.fromtimestamp(deadline)}"
+    )
+
+    log(
+        f"Session dir: {SESSION_DIR}"
+    )
+
+    log(
+        "========================================"
+    )
+
+    checkpoint(
+        "AutoLab before autonomous session"
+    )
+
+    cycle = 0
+
     while time.time() < deadline:
-        iteration += 1
-        if max_iterations is not None and iteration > max_iterations:
-            log(f"Hit max_iterations={max_iterations}")
-            break
-        remaining = max(0.0, deadline - time.time())
-        prompt = build_continue_prompt(iteration, remaining)
-        code = run_one_agent_session(agent, prompt, iteration)
-        log(f"Agent session #{iteration} exited with code {code}")
-        remaining = deadline - time.time()
-        if remaining <= 0:
-            break
-        # Brief pause before relaunch so we don't spin on instant failures
-        pause = 15 if code == 0 else 60
-        pause = min(pause, remaining)
-        log(f"Relaunching in {pause:.0f}s ({remaining / 3600:.2f}h left)...")
-        time.sleep(pause)
 
-    log("SUPERVISOR SESSION FINISHED")
-    meta = {
-        "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "iterations": iteration,
-        "hours_requested": hours,
-    }
-    (RESULTS / "session_meta_final.json").write_text(
-        json.dumps(meta, indent=2), encoding="utf-8"
+        cycle += 1
+
+        remaining = (
+            deadline
+            - time.time()
+        )
+
+        log(
+            "----------------------------------------"
+        )
+
+        log(
+            f"CYCLE {cycle}"
+        )
+
+        log(
+            f"Remaining: "
+            f"{remaining / 3600:.2f}h"
+        )
+
+        result = run_cycle(
+            cycle,
+            deadline,
+        )
+
+        log(
+            f"CYCLE {cycle} RESULT: {result}"
+        )
+
+        # Save machine-readable cycle result.
+        report = {
+            "cycle": cycle,
+            "result": result,
+            "timestamp": datetime.now().isoformat(),
+            "remaining_seconds":
+                max(
+                    0,
+                    deadline - time.time(),
+                ),
+            "git_status":
+                git_status(),
+        }
+
+        (
+            SESSION_DIR
+            / f"cycle_{cycle:03d}.json"
+        ).write_text(
+            json.dumps(
+                report,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        checkpoint(
+            f"AutoLab cycle {cycle}"
+        )
+
+        if time.time() >= deadline:
+
+            break
+
+        log(
+            f"Restarting in {RESTART_DELAY}s"
+        )
+
+        time.sleep(
+            RESTART_DELAY
+        )
+
+    checkpoint(
+        "AutoLab final autonomous session"
     )
-    print(json.dumps(meta, indent=2), flush=True)
 
+    log(
+        "========================================"
+    )
 
-def main() -> None:
-    p = argparse.ArgumentParser()
-    p.add_argument("--hours", type=float, default=6.0)
-    p.add_argument("--max-iterations", type=int, default=None)
-    args = p.parse_args()
-    run_supervisor(hours=args.hours, max_iterations=args.max_iterations)
+    log(
+        "6-HOUR SESSION FINISHED"
+    )
+
+    log(
+        f"Cycles completed: {cycle}"
+    )
+
+    log(
+        "========================================"
+    )
 
 
 if __name__ == "__main__":

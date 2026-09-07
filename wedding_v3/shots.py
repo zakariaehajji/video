@@ -48,6 +48,9 @@ class Shot:
     best_t: float = 0.0
     smile: float = 0.0
     sharpness: float = 0.0
+    kiss: float = 0.0
+    hug: float = 0.0
+    reaction: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -150,6 +153,9 @@ def analyze_video_shots(video_path: Path, force: bool = False) -> list[Shot]:
         peak = float(best.emotion_score / emo_max)
         faces = int(max(m.face_count for m in inside))
         smile = float(best.smile)
+        kiss = float(max(getattr(m, "kiss", 0.0) for m in inside))
+        hug = float(max(getattr(m, "hug", 0.0) for m in inside))
+        reaction = float(max(getattr(m, "reaction", 0.0) for m in inside))
 
         # shot type
         if faces == 0:
@@ -163,6 +169,12 @@ def analyze_video_shots(video_path: Path, force: bool = False) -> list[Shot]:
         tags = list(story)
         if smile > 0.35:
             tags.append("smile")
+        if kiss >= 0.40:
+            tags.append("kiss")
+        if hug >= 0.50:
+            tags.append("hug")
+        if reaction >= 0.55 and faces >= 1:
+            tags.append("reaction")
         if peak > 0.75:
             tags.append("emotional_peak")
         if motion in ("medium", "high"):
@@ -191,6 +203,9 @@ def analyze_video_shots(video_path: Path, force: bool = False) -> list[Shot]:
             best_t=round(best.t, 3),
             smile=round(smile, 4),
             sharpness=round(best.sharpness, 4),
+            kiss=round(kiss, 4),
+            hug=round(hug, 4),
+            reaction=round(reaction, 4),
         )
         shots.append(shot)
 

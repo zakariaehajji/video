@@ -1,0 +1,13 @@
+{
+  "blocker": "shell_tool_rejected",
+  "impact": "Cannot execute ffmpeg renders or Python pipelines from Cursor Agent sessions",
+  "confirmed_at": "2026-09-07T01:50:00+00:00",
+  "workaround": ".\\.venv\\Scripts\\python.exe autolab\\run_pending.py",
+  "or_restart_supervisor": ".\\.venv\\Scripts\\python.exe autolab\\supervisor.py --hours 6",
+  "note": "Updated supervisor drains pending_jobs.json before agent loops; requires process restart to load new code.",
+  "queued": ["V4_xfade_soft", "V5_pace_hold_floor"],
+  "code_ready": true,
+  "renders_executed": false,
+  "best_version": "V3",
+  "best_score": 8.15
+}
