@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import sys
 import re
 import hashlib
 import importlib
@@ -20,7 +21,7 @@ SHOT_LENGTH_RANGE_CAP_SEC = 1.0
 def _read_config() -> dict:
     """Read key=value pairs from config.py as strings."""
     vals = {}
-    with open(CONFIG_PATH, "r") as f:
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         for line in f:
             m = re.match(r'^([A-Z_][A-Z0-9_]*)\s*=\s*(.+)', line)
             if m:
@@ -40,7 +41,7 @@ def _cfg(key: str, fallback: str) -> str:
 
 def save_config(key: str, value: str):
     """Overwrite a single key in config.py."""
-    with open(CONFIG_PATH, "r") as f:
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         content = f.read()
     # Determine whether to quote: if original had quotes or value is not numeric
     try:
@@ -54,7 +55,7 @@ def save_config(key: str, value: str):
         content,
         flags=re.MULTILINE,
     )
-    with open(CONFIG_PATH, "w") as f:
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         f.write(content)
 
 
@@ -89,94 +90,149 @@ def _persist_target_shot_length(shot_length: float):
     save_config("AUDIO_MAX_SEGMENT_DURATION", str(max_seg_duration))
 
 st.set_page_config(
-    page_title="CutClaw",
-    page_icon="🎬",
+    page_title="CutClaw Events",
+    page_icon="💍",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap');
 
-/* ── Reset & base ── */
-html, body, [class*="css"] {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif !important;
+:root {
+  --ink: #1c2421;
+  --moss: #2f5d50;
+  --moss-deep: #1f3f36;
+  --blush: #d9b7a4;
+  --sand: #f3ebe2;
+  --fog: #e7ddd2;
+  --gold: #b08d57;
 }
 
-/* ── Buttons ── */
+html, body, [class*="css"], .stApp {
+  font-family: 'Manrope', sans-serif !important;
+  color: var(--ink);
+}
+.stApp {
+  background:
+    radial-gradient(1200px 600px at 10% -10%, #f7efe6 0%, transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, #dfece6 0%, transparent 45%),
+    linear-gradient(180deg, #f6f1ea 0%, #efe6db 48%, #e8f0eb 100%);
+}
+[data-testid="stSidebar"] {
+  background: linear-gradient(180deg, #1f3f36 0%, #16332c 100%);
+  border-right: 1px solid rgba(255,255,255,0.06);
+}
+[data-testid="stSidebar"] * { color: #f4eee6 !important; }
+[data-testid="stSidebar"] .stCaption, [data-testid="stSidebar"] label {
+  color: rgba(244,238,230,0.78) !important;
+}
+[data-testid="stSidebar"] input, [data-testid="stSidebar"] textarea,
+[data-testid="stSidebar"] [data-baseweb="select"] > div {
+  background: rgba(255,255,255,0.08) !important;
+  color: #fff !important;
+  border-radius: 10px !important;
+}
 div.stButton > button {
-    border-radius: 12px;
-    font-weight: 600;
-    font-size: 0.95rem;
-    padding: 0.6rem 1.4rem;
-    border: 1px solid rgba(150, 150, 150, 0.2);
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid rgba(176,141,87,0.35);
+  transition: all 0.2s ease;
 }
 div.stButton > button:first-child {
-    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-    color: white !important;
-    border: none;
-    box-shadow: 0 4px 10px rgba(99, 102, 241, 0.3);
+  background: linear-gradient(135deg, #2f5d50 0%, #1f3f36 100%);
+  color: #f7f1e8 !important;
+  border: none;
+  box-shadow: 0 10px 24px rgba(31,63,54,0.28);
 }
 div.stButton > button:first-child:hover {
-    opacity: 0.95;
-    transform: translateY(-1px);
-    box-shadow: 0 6px 14px rgba(99, 102, 241, 0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(31,63,54,0.34);
 }
-div.stButton > button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+div.stButton > button:disabled { opacity: 0.45; transform: none; box-shadow: none; }
 
-/* ── Cards ── */
-.vca-card {
-    border-radius: 16px;
-    padding: 1.8rem;
-    background: rgba(150, 150, 150, 0.05);
-    box-shadow: 0 4px 20px rgba(0,0,0,0.03);
-    margin-bottom: 1.5rem;
-    border: 1px solid rgba(150, 150, 150, 0.15);
-    backdrop-filter: blur(10px);
+.hero-wrap {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0;
+  padding: 2.2rem 0 1.4rem 0;
+  margin-bottom: 0.5rem;
+}
+.hero-brand {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: clamp(2.8rem, 5vw, 4.2rem);
+  font-weight: 700;
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  color: var(--moss-deep);
+  margin: 0;
+}
+.hero-line {
+  margin-top: 0.85rem;
+  max-width: 34rem;
+  font-size: 1.05rem;
+  color: rgba(28,36,33,0.72);
+}
+.hero-badge {
+  display: inline-block;
+  margin-top: 1rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--moss);
+  border-bottom: 1px solid rgba(47,93,80,0.35);
+  padding-bottom: 0.2rem;
+}
+.section-title {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--moss-deep);
+  margin: 1.4rem 0 0.35rem;
+}
+.section-sub {
+  color: rgba(28,36,33,0.65);
+  margin-bottom: 1rem;
+}
+.gallery-meta {
+  font-size: 0.82rem;
+  color: rgba(28,36,33,0.6);
+  margin-top: 0.35rem;
 }
 
-/* ── Log terminal ── */
 .vca-log {
-    background: #0f172a;
-    color: #f8fafc;
-    font-family: "JetBrains Mono", "SF Mono", monospace;
-    font-size: 0.82rem;
-    line-height: 1.65;
-    border-radius: 12px;
-    padding: 1.5rem;
-    height: 480px;
-    overflow-y: auto;
-    white-space: pre-wrap;
-    word-break: break-all;
-    border: 1px solid #1e293b;
-    box-shadow: inset 0 2px 8px rgba(0,0,0,0.2);
+  background: #15241f;
+  color: #f3eee6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  line-height: 1.65;
+  border-radius: 14px;
+  padding: 1.2rem;
+  height: 420px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  border: 1px solid rgba(176,141,87,0.25);
 }
-.vca-stage { color: #818cf8; font-weight: 600; text-shadow: 0 0 8px rgba(129,140,248,0.2); }
-.vca-error { color: #f87171; font-weight: 500; }
-.vca-success { color: #34d399; font-weight: 500; }
-
-/* ── Status badge ── */
+.vca-stage { color: #d7b781; font-weight: 600; }
+.vca-error { color: #ef9a9a; font-weight: 500; }
+.vca-success { color: #9fd5b5; font-weight: 500; }
 .vca-badge {
-    display: inline-block;
-    border-radius: 9999px;
-    padding: 0.25rem 0.85rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+  display: inline-block;
+  border-radius: 9999px;
+  padding: 0.25rem 0.85rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
-.vca-badge-idle    { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
-.vca-badge-running { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-.vca-badge-done    { background: #dcfce7; color: #047857; border: 1px solid #a7f3d0; }
-.vca-badge-error   { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.6; }
-}
+.vca-badge-idle    { background: #ebe3d8; color: #5b5348; }
+.vca-badge-running { background: #efe0c3; color: #7a5a1d; }
+.vca-badge-done    { background: #d7ebe1; color: #215544; }
+.vca-badge-error   { background: #f3d4d4; color: #8a3030; }
 </style>
 """, unsafe_allow_html=True)
 # ── Session state ──────────────────────────────────────────────
@@ -198,10 +254,10 @@ for _k, _v in _DEFAULTS.items():
 
 # ── Sidebar ────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 🎬 CutClaw")
+    st.markdown("### CutClaw Events")
+    st.caption("Weddings & celebrations")
     st.markdown("---")
 
-    # ── Video file picker ──
     _VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v"}
     _AUDIO_EXTS = {".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a"}
 
@@ -209,171 +265,134 @@ with st.sidebar:
         base = os.path.join(PROJECT_ROOT, folder)
         if not os.path.isdir(base):
             return []
-        return sorted(
-            os.path.join(folder, f)
-            for f in os.listdir(base)
-            if os.path.splitext(f)[1].lower() in exts
-        )
+        found = []
+        for root, _, files in os.walk(base):
+            for f in files:
+                if os.path.splitext(f)[1].lower() in exts:
+                    rel = os.path.relpath(os.path.join(root, f), PROJECT_ROOT).replace("\\", "/")
+                    found.append(rel)
+        return sorted(found)
 
     _video_files = _scan_files("resource/video", _VIDEO_EXTS)
     _saved_video = _cfg("VIDEO_PATH", "")
     if _saved_video and _saved_video not in _video_files:
         _video_files = [_saved_video] + _video_files
 
+    st.markdown("**1. Wedding / event footage**")
     if _video_files:
         _vi = _video_files.index(_saved_video) if _saved_video in _video_files else 0
-        video_path = st.selectbox("Video", _video_files, index=_vi, key="si_video_path")
+        video_path = st.selectbox("Video", _video_files, index=_vi, key="si_video_path", label_visibility="collapsed")
     else:
-        video_path = st.text_input(
-            "Video Path",
-            value=_saved_video,
-            placeholder="/path/to/video.mkv",
-            key="si_video_path",
-        )
+        video_path = st.text_input("Video Path", value=_saved_video, placeholder="resource/video/your_wedding.mp4", key="si_video_path")
     if video_path != _saved_video:
         save_config("VIDEO_PATH", video_path)
 
-    with st.expander("📝 Provide SRT Path (Optional)", expanded=False):
-        _SRT_EXTS = {".srt", ".vtt", ".ass", ".ssa"}
-        _srt_files = _scan_files("resource/subtitle", _SRT_EXTS)
-        _saved_srt = _cfg("SRT_PATH", "")
-        if _saved_srt and _saved_srt not in _srt_files:
-            _srt_files = [_saved_srt] + _srt_files
-
-        if _srt_files:
-            _srt_options = [""] + _srt_files
-            _sri = _srt_options.index(_saved_srt) if _saved_srt in _srt_options else 0
-            srt_path = st.selectbox(
-                "SRT File",
-                _srt_options,
-                index=_sri,
-                help="Select an existing SRT file. Skips ASR transcription; diarization still runs to assign speakers.",
-                key="si_srt_path",
-            )
-        else:
-            srt_path = st.text_input(
-                "SRT Path",
-                value=_saved_srt,
-                placeholder="/path/to/subtitles.srt",
-                help="Path to existing SRT file. Skips ASR transcription; diarization still runs to assign speakers.",
-                key="si_srt_path",
-            )
-        if srt_path != _saved_srt:
-            save_config("SRT_PATH", srt_path)
-
-    # ── Audio file picker ──
+    st.markdown("**2. Music**")
     _audio_files = _scan_files("resource/audio", _AUDIO_EXTS)
     _saved_audio = _cfg("AUDIO_PATH", "")
     if _saved_audio and _saved_audio not in _audio_files:
         _audio_files = [_saved_audio] + _audio_files
-
     if _audio_files:
         _ai = _audio_files.index(_saved_audio) if _saved_audio in _audio_files else 0
-        audio_path = st.selectbox("Audio", _audio_files, index=_ai, key="si_audio_path")
+        audio_path = st.selectbox("Audio", _audio_files, index=_ai, key="si_audio_path", label_visibility="collapsed")
     else:
-        audio_path = st.text_input(
-            "Audio Path",
-            value=_saved_audio,
-            placeholder="/path/to/audio.mp3",
-            key="si_audio_path",
-        )
+        audio_path = st.text_input("Audio Path", value=_saved_audio, placeholder="resource/audio/song.mp3", key="si_audio_path")
     if audio_path != _saved_audio:
         save_config("AUDIO_PATH", audio_path)
 
+    st.markdown("**3. Couple or event name**")
+    _default_instruction = _cfg("INSTRUCTION", "") or "Create a romantic wedding highlight film with soft emotional pacing, smiles, rings, and couple moments."
+    main_character = st.text_input(
+        "Names",
+        value=_cfg("MAIN_CHARACTER_NAME", "") or "the couple",
+        placeholder="e.g. Sara & Adam",
+        key="si_main_character",
+        label_visibility="collapsed",
+    )
+    if main_character != _cfg("MAIN_CHARACTER_NAME", ""):
+        save_config("MAIN_CHARACTER_NAME", main_character)
+
+    st.markdown("**4. Style note**")
     instruction = st.text_area(
         "Instruction",
-        value=_cfg("INSTRUCTION", ""),
-        placeholder="Describe the edit you want...",
-        height=100,
+        value=_default_instruction,
+        placeholder="Romantic ceremony highlight, soft pacing, emotional close-ups...",
+        height=110,
         key="si_instruction",
+        label_visibility="collapsed",
     )
     if instruction != _cfg("INSTRUCTION", ""):
         save_config("INSTRUCTION", instruction)
 
     video_type = "film"
+    srt_path = ""
+    target_length = 60.0
+    shot_length = 2.0
 
-    main_character = st.text_input(
-        "Main Character Name",
-        value=_cfg("MAIN_CHARACTER_NAME", ""),
-        placeholder="e.g. Batman",
-        key="si_main_character",
-    )
-    if main_character != _cfg("MAIN_CHARACTER_NAME", ""):
-        save_config("MAIN_CHARACTER_NAME", main_character)
+    with st.expander("Optional: subtitles", expanded=False):
+        _SRT_EXTS = {".srt", ".vtt", ".ass", ".ssa"}
+        _srt_files = _scan_files("resource/subtitle", _SRT_EXTS)
+        _saved_srt = _cfg("SRT_PATH", "")
+        if _saved_srt and _saved_srt not in _srt_files:
+            _srt_files = [_saved_srt] + _srt_files
+        if _srt_files:
+            _srt_options = [""] + _srt_files
+            _sri = _srt_options.index(_saved_srt) if _saved_srt in _srt_options else 0
+            srt_path = st.selectbox("SRT File", _srt_options, index=_sri, key="si_srt_path")
+        else:
+            srt_path = st.text_input("SRT Path", value=_saved_srt, key="si_srt_path")
+        if srt_path != _saved_srt:
+            save_config("SRT_PATH", srt_path)
 
-    target_length = st.number_input(
-        "Target Output Length (seconds)",
-        min_value=10.0, max_value=300.0,
-        value=float(_cfg("AUDIO_SEGMENT_MAX_DURATION_SEC", "35.0")) - 5.0,
-        step=5.0,
-        help="Sets AUDIO_SEGMENT_MIN/MAX_DURATION_SEC to Target ± 5 seconds.",
-        key="si_target_length",
-    )
-    if target_length != float(_cfg("AUDIO_SEGMENT_MAX_DURATION_SEC", "35.0")) - 5.0:
-        _persist_target_output_length(target_length)
-
-    shot_length = st.number_input(
-        "Target Shot Length (seconds)",
-        min_value=MIN_TARGET_SHOT_LENGTH_SEC, max_value=30.0,
-        value=_derive_target_shot_length_from_config(),
-        step=0.1,
-        help="Allows rapid montage pacing. For >=1s, uses Target ±1s; for sub-second targets, the range narrows automatically.",
-        key="si_shot_length",
-    )
-    if shot_length != _derive_target_shot_length_from_config():
-        _persist_target_shot_length(shot_length)
-
-    with st.expander("⚙️ Model Settings", expanded=False):
-        st.markdown("**1. Video Analysis Model (Vision)**")
-        st.caption("Used for dense video captioning and scene understanding.")
+    with st.expander("Optional: AI keys (full CutClaw)", expanded=False):
+        st.caption("Only needed for the full agent pipeline.")
         video_analysis_model = st.text_input("VIDEO_ANALYSIS_MODEL", value=_cfg("VIDEO_ANALYSIS_MODEL", "openai/qwen3.5-plus"), key="si_va_model")
         if video_analysis_model != _cfg("VIDEO_ANALYSIS_MODEL", ""):
             save_config("VIDEO_ANALYSIS_MODEL", video_analysis_model)
-        video_analysis_endpoint = st.text_input("VIDEO_ANALYSIS_ENDPOINT", value=_cfg("VIDEO_ANALYSIS_ENDPOINT", "https://coding.dashscope.aliyuncs.com/v1"), key="si_va_ep")
+        video_analysis_endpoint = st.text_input("VIDEO_ANALYSIS_ENDPOINT", value=_cfg("VIDEO_ANALYSIS_ENDPOINT", ""), key="si_va_ep")
         if video_analysis_endpoint != _cfg("VIDEO_ANALYSIS_ENDPOINT", ""):
             save_config("VIDEO_ANALYSIS_ENDPOINT", video_analysis_endpoint)
         video_analysis_api_key = st.text_input("VIDEO_ANALYSIS_API_KEY", value=_cfg("VIDEO_ANALYSIS_API_KEY", ""), type="password", key="si_va_key")
         if video_analysis_api_key != _cfg("VIDEO_ANALYSIS_API_KEY", ""):
             save_config("VIDEO_ANALYSIS_API_KEY", video_analysis_api_key)
 
-        st.markdown("**2. Audio Analysis Model (Language)**")
-        st.caption("Used for structure analysis and capturing musical emotions/beats.")
-        audio_litellm_model = st.text_input("AUDIO_LITELLM_MODEL", value=_cfg("AUDIO_LITELLM_MODEL", "openai/gemini-3-flash-preview-nothinking"), key="si_al_model")
+        audio_litellm_model = st.text_input("AUDIO_LITELLM_MODEL", value=_cfg("AUDIO_LITELLM_MODEL", ""), key="si_al_model")
         if audio_litellm_model != _cfg("AUDIO_LITELLM_MODEL", ""):
             save_config("AUDIO_LITELLM_MODEL", audio_litellm_model)
-        audio_litellm_base_url = st.text_input("AUDIO_LITELLM_BASE_URL", value=_cfg("AUDIO_LITELLM_BASE_URL", "https://api.gpt.ge/v1"), key="si_al_url")
+        audio_litellm_base_url = st.text_input("AUDIO_LITELLM_BASE_URL", value=_cfg("AUDIO_LITELLM_BASE_URL", ""), key="si_al_url")
         if audio_litellm_base_url != _cfg("AUDIO_LITELLM_BASE_URL", ""):
             save_config("AUDIO_LITELLM_BASE_URL", audio_litellm_base_url)
         audio_litellm_api_key = st.text_input("AUDIO_LITELLM_API_KEY", value=_cfg("AUDIO_LITELLM_API_KEY", ""), type="password", key="si_al_key")
         if audio_litellm_api_key != _cfg("AUDIO_LITELLM_API_KEY", ""):
             save_config("AUDIO_LITELLM_API_KEY", audio_litellm_api_key)
 
-        st.markdown("**3. Editing Agent Model (Reasoning)**")
-        st.caption("Used by Screenwriter, Editor, and Reviewer agents to select and review shots.")
-        agent_litellm_model = st.text_input("AGENT_LITELLM_MODEL", value=_cfg("AGENT_LITELLM_MODEL", "openai/MiniMax-M2.5"), key="si_ag_model")
+        agent_litellm_model = st.text_input("AGENT_LITELLM_MODEL", value=_cfg("AGENT_LITELLM_MODEL", ""), key="si_ag_model")
         if agent_litellm_model != _cfg("AGENT_LITELLM_MODEL", ""):
             save_config("AGENT_LITELLM_MODEL", agent_litellm_model)
-        agent_litellm_url = st.text_input("AGENT_LITELLM_URL", value=_cfg("AGENT_LITELLM_URL", "https://api.minimaxi.com/v1"), key="si_ag_url")
+        agent_litellm_url = st.text_input("AGENT_LITELLM_URL", value=_cfg("AGENT_LITELLM_URL", ""), key="si_ag_url")
         if agent_litellm_url != _cfg("AGENT_LITELLM_URL", ""):
             save_config("AGENT_LITELLM_URL", agent_litellm_url)
         agent_litellm_api_key = st.text_input("AGENT_LITELLM_API_KEY", value=_cfg("AGENT_LITELLM_API_KEY", ""), type="password", key="si_ag_key")
         if agent_litellm_api_key != _cfg("AGENT_LITELLM_API_KEY", ""):
             save_config("AGENT_LITELLM_API_KEY", agent_litellm_api_key)
 
+    # Keep model vars defined even if expander defaults empty
+    video_analysis_model = _cfg("VIDEO_ANALYSIS_MODEL", "")
+    video_analysis_endpoint = _cfg("VIDEO_ANALYSIS_ENDPOINT", "")
+    video_analysis_api_key = _cfg("VIDEO_ANALYSIS_API_KEY", "")
+    audio_litellm_model = _cfg("AUDIO_LITELLM_MODEL", "")
+    audio_litellm_base_url = _cfg("AUDIO_LITELLM_BASE_URL", "")
+    audio_litellm_api_key = _cfg("AUDIO_LITELLM_API_KEY", "")
+    agent_litellm_model = _cfg("AGENT_LITELLM_MODEL", "")
+    agent_litellm_url = _cfg("AGENT_LITELLM_URL", "")
+    agent_litellm_api_key = _cfg("AGENT_LITELLM_API_KEY", "")
+
     st.markdown("---")
     col1, col2 = st.columns(2)
     with col1:
-        run_clicked = st.button(
-            "▶ Run",
-            disabled=st.session_state.running,
-            use_container_width=True,
-        )
+        run_clicked = st.button("Create film", disabled=st.session_state.running, use_container_width=True)
     with col2:
-        stop_clicked = st.button(
-            "■ Stop",
-            disabled=not st.session_state.running,
-            use_container_width=True,
-        )
+        stop_clicked = st.button("Stop", disabled=not st.session_state.running, use_container_width=True)
 # ── Helpers ────────────────────────────────────────────────────
 def derive_shot_point_path(video_path: str, audio_path: str, instruction: str) -> str:
     import src.config as config
@@ -469,7 +488,7 @@ def start_pipeline(video_path, audio_path, instruction, video_type, main_charact
     min_seg_duration, max_seg_duration = _derive_shot_duration_bounds(shot_length)
     
     cmd = [
-        "python", "local_run.py",
+        sys.executable, "local_run.py",
         "--Video_Path", video_path,
         "--Audio_Path", audio_path,
         "--Instruction", instruction,
@@ -732,11 +751,67 @@ def format_log_line(line: str) -> str:
 
 # ── Main area ──────────────────────────────────────────────────
 st.markdown(
-    f'<h1 style="font-size:2.2rem;font-weight:800;letter-spacing:-0.02em;margin-bottom:0.2rem">'
-    f'🎬 CutClaw &nbsp; {status_badge()}</h1>',
+    f"""
+<div class="hero-wrap">
+  <div class="hero-badge">Weddings & events · {status_badge()}</div>
+  <h1 class="hero-brand">CutClaw</h1>
+  <p class="hero-line">Turn raw ceremony footage and a song into a soft highlight film. Add video, music, names — that is all.</p>
+</div>
+""",
     unsafe_allow_html=True,
 )
-st.markdown("---")
+
+_wedding_dir = os.path.join(PROJECT_ROOT, "Output", "wedding_v3")
+_best_v3 = os.path.join(_wedding_dir, "BEST_v3.mp4")
+if os.path.exists(_best_v3):
+    st.markdown('<div class="section-title">V3 best candidate</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Emotion + music sections + multi-candidate ranking (auto-selected).</div>', unsafe_allow_html=True)
+    st.video(_best_v3)
+
+# Prefer sprint rendered folders, else v2 gallery
+_gallery_dirs = [
+    os.path.join(PROJECT_ROOT, "Output", "wedding_v3", "sprint_music_428"),
+    os.path.join(PROJECT_ROOT, "Output", "wedding_v3", "sprint_music_698"),
+    os.path.join(PROJECT_ROOT, "Output", "wedding_tests_v2"),
+    os.path.join(PROJECT_ROOT, "Output", "wedding_tests"),
+]
+_clips = []
+_gallery_label = "Wedding gallery"
+for _wedding_dir in _gallery_dirs:
+    if not os.path.isdir(_wedding_dir):
+        continue
+    found = sorted(f for f in os.listdir(_wedding_dir) if f.lower().endswith(".mp4") and not f.startswith("BEST"))
+    if found:
+        _clips = found
+        _gallery_root = _wedding_dir
+        if "wedding_v3" in _wedding_dir:
+            _gallery_label = "V3 rendered candidates"
+        elif "v2" in _wedding_dir:
+            _gallery_label = "V2 multi-clip gallery"
+        break
+else:
+    _gallery_root = ""
+
+if _clips:
+    st.markdown(f'<div class="section-title">{_gallery_label}</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-sub">Ranked montage candidates from the local wedding engine.</div>', unsafe_allow_html=True)
+    for i in range(0, min(len(_clips), 6), 2):
+        cols = st.columns(2)
+        for j, col in enumerate(cols):
+            if i + j >= min(len(_clips), 6):
+                break
+            name = _clips[i + j]
+            path = os.path.join(_gallery_root, name)
+            with col:
+                st.video(path)
+                st.markdown(f'<div class="gallery-meta">{name}</div>', unsafe_allow_html=True)
+
+_preview_path = os.path.join(PROJECT_ROOT, "Output", "babydoll_bilal_FIRE.mp4")
+if not os.path.exists(_preview_path):
+    _preview_path = os.path.join(PROJECT_ROOT, "Output", "babydoll_bilal_preview.mp4")
+if os.path.exists(_preview_path) and not os.path.isdir(_wedding_dir):
+    st.markdown('<div class="section-title">Latest local preview</div>', unsafe_allow_html=True)
+    st.video(_preview_path)
 
 if st.session_state.get("start_error"):
     st.error(f"Failed to start pipeline: {st.session_state.start_error}")

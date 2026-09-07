@@ -17,9 +17,9 @@ import os
 # ------------------ UI Remembered Inputs ------------------ #
 # These are saved automatically by the app when you change sidebar fields.
 
-VIDEO_PATH = ""
-AUDIO_PATH = ""
-INSTRUCTION = ""
+VIDEO_PATH = "resource/video/wedding_web/wedding_36171.mp4"
+AUDIO_PATH = "resource/audio/wedding_web/music_698.mp3"
+INSTRUCTION = "Create a romantic wedding highlight film with soft emotional pacing, smiles, rings, and couple moments."
 SRT_PATH = ""
 
 
@@ -41,7 +41,7 @@ VIDEO_FPS = 2
 # Frame sampling rate during preprocessing (frames per second).
 # Typical range: 1~3. Higher FPS gives finer analysis but increases cost/time.
 
-VIDEO_MAX_MINUTES = None
+VIDEO_MAX_MINUTES = 5
 # Maximum video duration to process (minutes). None means full video.
 # For quick debugging, setting this to 3~10 is often helpful.
 
@@ -383,7 +383,7 @@ FACE_QUALITY_CHECK_METHOD = "vlm"
 
 # ------------------ Protagonist Presence Constraints ------------------ #
 
-MAIN_CHARACTER_NAME = ""
+MAIN_CHARACTER_NAME = "the couple"
 # Main character / target subject name (comma-separated for multiple roles).
 # This is one of the highest-impact parameters in object mode.
 
