@@ -50,6 +50,26 @@ WATCH_ROOTS = [
 ]
 
 
+def find_agent() -> str:
+    from shutil import which
+
+    # Prefer refreshed PATH; fall back to known Windows install location.
+    path = which("agent")
+    if path:
+        return path
+    candidates = [
+        Path.home() / "AppData" / "Local" / "cursor-agent" / "agent.cmd",
+        Path.home() / "AppData" / "Local" / "cursor-agent" / "agent.exe",
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    raise FileNotFoundError(
+        "Cursor Agent CLI not found. Install with: "
+        "irm 'https://cursor.com/install?win32=true' | iex"
+    )
+
+
 def log(message):
 
     text = (
@@ -306,9 +326,12 @@ def run_cycle(
         encoding="utf-8",
     ) as output:
 
+        agent_bin = find_agent()
+        log(f"Agent binary: {agent_bin}")
+
         process = subprocess.Popen(
             [
-                "agent",
+                agent_bin,
                 "--trust",
                 "--force",
                 "-p",
@@ -316,10 +339,11 @@ def run_cycle(
                 "--output-format",
                 "text",
             ],
-            cwd=ROOT,
+            cwd=str(ROOT),
             stdout=output,
             stderr=subprocess.STDOUT,
             text=True,
+            shell=False,
         )
 
     log(
