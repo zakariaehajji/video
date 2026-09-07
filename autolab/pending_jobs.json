@@ -30,5 +30,16 @@
     "score": 8.42,
     "verdict": "KEEP",
     "note": "first render 8.14 REJECT (weak peak music_sync); recovery peak emotion floor KEEP 8.42"
+  },
+  {
+    "id": "V7_title_cards",
+    "script": "autolab/run_v7_titles.py",
+    "status": "done",
+    "priority": 4,
+    "hypothesis": "Soft title/outro cards raise polish and wedding feeling",
+    "depends_on": "V6_emotion_kiss_hug",
+    "returncode": 0,
+    "score": 8.47,
+    "verdict": "KEEP"
   }
 ]

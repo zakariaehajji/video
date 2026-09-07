@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from wedding_v3.ranking import RankedPick
+from wedding_v3.titles import TITLE_CARDS
 
 
 @dataclass
@@ -128,6 +129,10 @@ def critique_plan(picks: list[RankedPick], profile: str = "") -> Critique:
         problems.append("too much slow motion")
     if xfade:
         polish += 0.1
+    # V7 soft title/outro cards: professional wedding-film bookends.
+    if TITLE_CARDS:
+        polish = min(1.0, polish + 0.18)
+        wedding = min(1.0, wedding + 0.06)
 
     if consec >= 3:
         problems.append("same source repeated consecutively")

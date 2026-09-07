@@ -12,6 +12,7 @@ from wedding_v3.music import MusicAnalysis
 from wedding_v3.ranking import WEIGHT_PROFILES, allocate
 from wedding_v3.shots import build_pool, load_pool
 from wedding_v3.story import available_roles_from_shots, plan_story
+from wedding_v3.titles import TOTAL_TARGET, content_duration
 
 ROOT = Path(__file__).resolve().parents[1]
 VID_DIR = ROOT / "resource" / "video" / "wedding_web"
@@ -55,8 +56,10 @@ def run_candidates(
 
     candidates = []
     cid = 0
+    # When title cards are gated on, shrink footage so total film stays ~38s.
+    story_dur = content_duration(TOTAL_TARGET)
     for style in styles:
-        beats = plan_story(analysis, roles, target_duration=38.0, style=style)
+        beats = plan_story(analysis, roles, target_duration=story_dur, style=style)
         for profile in profiles:
             cid += 1
             picks = allocate(beats, shots, profile=profile)

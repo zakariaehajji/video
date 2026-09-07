@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 from wedding_v3.ranking import RankedPick
+from wedding_v3.titles import TITLE_CARDS, bookend_silent
 
 
 def run(cmd: list[str]) -> None:
@@ -181,6 +182,10 @@ def render_montage(
         lst.write_text("".join(f"file '{p.as_posix()}'\n" for p in parts), encoding="utf-8")
         silent = work / "silent.mp4"
         run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", str(silent)])
+
+    # V7: soft title/outro cards bookend the silent cut (gated; default off).
+    if TITLE_CARDS:
+        silent = bookend_silent(silent, work / "titles")
 
     audio = Path(audio)
     out.parent.mkdir(parents=True, exist_ok=True)
