@@ -124,10 +124,43 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after early lab.db schemas."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(versions)").fetchall()}
+    if "is_best" not in cols:
+        conn.execute("ALTER TABLE versions ADD COLUMN is_best INTEGER DEFAULT 0")
+    if "parent_version" not in cols:
+        conn.execute("ALTER TABLE versions ADD COLUMN parent_version TEXT")
+    # Ensure at least one best row when versions exist but none flagged.
+    n = conn.execute("SELECT COUNT(*) AS c FROM versions").fetchone()["c"]
+    best_n = conn.execute(
+        "SELECT COUNT(*) AS c FROM versions WHERE is_best=1"
+    ).fetchone()["c"]
+    if n > 0 and best_n == 0:
+        top = conn.execute(
+            "SELECT id FROM versions ORDER BY score DESC, id ASC LIMIT 1"
+        ).fetchone()
+        if top:
+            conn.execute("UPDATE versions SET is_best=1 WHERE id=?", (top["id"],))
+
+    exp_cols = {row[1] for row in conn.execute("PRAGMA table_info(experiments)").fetchall()}
+    if "runtime" not in exp_cols and "runtime_seconds" in exp_cols:
+        # Older DBs used runtime_seconds; expose runtime alias column for code paths.
+        conn.execute("ALTER TABLE experiments ADD COLUMN runtime REAL")
+        conn.execute(
+            "UPDATE experiments SET runtime=runtime_seconds WHERE runtime IS NULL"
+        )
+    elif "runtime" not in exp_cols:
+        conn.execute("ALTER TABLE experiments ADD COLUMN runtime REAL")
+    if "result" not in exp_cols:
+        conn.execute("ALTER TABLE experiments ADD COLUMN result TEXT")
+
+
 def init_db() -> None:
     ensure_dirs()
     with connect() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         # Seed baseline V3 if empty
         n = conn.execute("SELECT COUNT(*) AS c FROM versions").fetchone()["c"]
         if n == 0:
@@ -202,13 +235,19 @@ def finish_experiment(
     status: str = "completed",
 ) -> None:
     with connect() as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(experiments)").fetchall()}
+        sets = ["score=?", "result=?", "status=?"]
+        vals: list[Any] = [score, result, status]
+        if "runtime" in cols:
+            sets.insert(1, "runtime=?")
+            vals.insert(1, runtime)
+        if "runtime_seconds" in cols:
+            sets.insert(1, "runtime_seconds=?")
+            vals.insert(1, runtime)
+        vals.append(experiment_id)
         conn.execute(
-            """
-            UPDATE experiments
-            SET score=?, runtime=?, result=?, status=?
-            WHERE id=?
-            """,
-            (score, runtime, result, status, experiment_id),
+            f"UPDATE experiments SET {', '.join(sets)} WHERE id=?",
+            vals,
         )
 
 

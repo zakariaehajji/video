@@ -166,6 +166,37 @@ def plan_story(
             t = end
             idx += 1
 
+    # V5: fewer/longer beats make raw peak-slowmo density too high for the critic.
+    # Cap to the polish sweet-spot (1..n//5), couple-only, preserving earliest peaks.
+    if PACE_HOLD_FLOOR and beats:
+        cap = max(2, len(beats) // 5)
+        kept = 0
+        capped: list[PlannedBeat] = []
+        for b in beats:
+            slow = b.want_slowmo
+            if slow:
+                if b.role != "couple" or kept >= cap:
+                    slow = False
+                else:
+                    kept += 1
+            if slow == b.want_slowmo:
+                capped.append(b)
+            else:
+                capped.append(
+                    PlannedBeat(
+                        t0=b.t0,
+                        t1=b.t1,
+                        dur=b.dur,
+                        section=b.section,
+                        role=b.role,
+                        energy=b.energy,
+                        want_slowmo=slow,
+                        want_xfade=b.want_xfade,
+                        is_peak=b.is_peak,
+                    )
+                )
+        beats = capped
+
     if beats and beats[-1].t1 < duration - 0.4:
         role = "wide" if "wide" in available_roles else ("couple" if "couple" in available_roles else prefs[0])
         beats.append(

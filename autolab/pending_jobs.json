@@ -2,16 +2,21 @@
   {
     "id": "V4_xfade_soft",
     "script": "autolab/run_v4_xfade.py",
-    "status": "pending",
+    "status": "done",
     "priority": 1,
-    "hypothesis": "Soft xfades on intro/outro raise polish without hurting sync"
+    "hypothesis": "Soft xfades on intro/outro raise polish without hurting sync",
+    "returncode": 0,
+    "note": "finalized from existing mp4; REJECT 8.02 vs 8.15"
   },
   {
     "id": "V5_pace_hold_floor",
     "script": "autolab/run_v5_pacing.py",
-    "status": "pending",
+    "status": "done",
     "priority": 2,
     "hypothesis": "Min shot duration floor stops beat-snap micro-cuts; raises pacing",
-    "depends_on": "V4_xfade_soft"
+    "depends_on": "V4_xfade_soft",
+    "returncode": 0,
+    "score": 8.22,
+    "verdict": "KEEP"
   }
 ]
