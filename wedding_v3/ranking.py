@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Sequence
 
 from wedding_v3.shots import Shot
 from wedding_v3.story import PlannedBeat
+
+# V9 experiment gate: prefer sharper / higher cinematic shots to lift visual_quality.
+VISUAL_BOOST = os.environ.get("WEDDING_V3_VISUAL_BOOST", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 WEIGHT_PROFILES = {
     "A_emotion": {
@@ -46,6 +54,21 @@ WEIGHT_PROFILES = {
         "variety": 0.07,
     },
 }
+
+
+def _effective_weights(profile: str) -> dict[str, float]:
+    """Return ranking weights; when VISUAL_BOOST, shift mass toward visual."""
+    w = dict(WEIGHT_PROFILES[profile])
+    if not VISUAL_BOOST:
+        return w
+    # Lift visual preference without starving variety (V9v1 over-cut variety→6.36).
+    w["visual"] = min(0.24, w["visual"] + 0.07)
+    w["variety"] = max(0.06, w["variety"] - 0.01)
+    w["continuity"] = max(0.07, w["continuity"] - 0.01)
+    total = sum(w.values())
+    if total > 0:
+        w = {k: v / total for k, v in w.items()}
+    return w
 
 
 @dataclass
@@ -88,13 +111,23 @@ def score_shot(
         music = 0.55 * emotion + 0.45 * (1.0 if shot.camera_motion != "static" else 0.4)
     else:
         music = 0.5 * shot.technical_quality + 0.5 * (1.0 if shot.camera_motion != "high" else 0.35)
-    visual = 0.6 * shot.technical_quality + 0.4 * shot.cinematic_quality
+    sharpness = float(getattr(shot, "sharpness", 0.0) or 0.0)
+    if VISUAL_BOOST:
+        # Critic visual_quality = mean(cinematic_quality); weight CQ + sharpness harder.
+        visual = (
+            0.35 * shot.technical_quality
+            + 0.45 * shot.cinematic_quality
+            + 0.20 * sharpness
+        )
+    else:
+        visual = 0.6 * shot.technical_quality + 0.4 * shot.cinematic_quality
 
     # continuity: prefer same couple/portrait chain, avoid random jumps to detail mid-peak
     continuity = 0.7
     if recent_videos:
         if shot.video in recent_videos[-1:]:
-            continuity = 0.35  # same file twice in a row is bad
+            # V9v2: harder consecutive-source penalty (V9v1 hit "same source repeated").
+            continuity = 0.18 if VISUAL_BOOST else 0.35
             reasons.append("same-video-penalty")
         elif shot.shot_type == beat.role:
             continuity = 0.85
@@ -104,8 +137,11 @@ def score_shot(
         variety = 0.0
         reasons.append("exact-reuse")
     elif shot.video in recent_videos[-3:]:
-        variety = 0.45
+        variety = 0.30 if VISUAL_BOOST else 0.45
         reasons.append("recent-video")
+    elif VISUAL_BOOST and recent_videos.count(shot.video) >= 2:
+        variety = 0.55
+        reasons.append("source-overuse")
 
     # peak payoff boost
     if beat.is_peak and shot.smile > 0.35 and shot.faces >= 1:
@@ -170,6 +206,26 @@ def score_shot(
     if beat.is_peak and shot.emotion_score < 0.35:
         total *= 0.55
         reasons.append("weak-peak-emotion")
+    # V9: soft quality floors / boosts so montage mean cinematic_quality rises.
+    if VISUAL_BOOST:
+        cq = float(shot.cinematic_quality or 0.0)
+        tq = float(shot.technical_quality or 0.0)
+        if cq < 0.50:
+            total *= 0.80
+            reasons.append("low-cinematic-floor")
+        elif cq >= 0.62:
+            total *= 1.08
+            reasons.append("high-cinematic-boost")
+        if tq < 0.58:
+            total *= 0.90
+            reasons.append("low-tech-floor")
+        elif tq >= 0.78 and sharpness >= 0.85:
+            total *= 1.05
+            reasons.append("sharp-tech-boost")
+        # Intro/outro bookends benefit most from clean frames (stock-footage feel).
+        if beat.section in ("intro", "outro") and cq < 0.53:
+            total *= 0.88
+            reasons.append("bookend-quality")
     if story >= 0.99:
         reasons.append(f"role:{beat.role}")
     return float(total), reasons
@@ -180,7 +236,7 @@ def allocate(
     shots: list[Shot],
     profile: str = "C_peak_payoff",
 ) -> list[RankedPick]:
-    weights = WEIGHT_PROFILES[profile]
+    weights = _effective_weights(profile)
     picks: list[RankedPick] = []
     recent_videos: list[str] = []
     recent_ids: list[str] = []
@@ -193,6 +249,8 @@ def allocate(
         unused = [s for s in shots if s.id not in used_ids]
         if unused:
             candidates = unused
+        # V9v2: do NOT hard-filter the pool (V9v1 filtered top-55% CQ → source repeats).
+        # Soft floors/boosts in score_shot already prefer high-CQ shots.
         scored = []
         for s in candidates:
             # duration feasibility

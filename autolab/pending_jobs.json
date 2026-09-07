@@ -52,5 +52,17 @@
     "returncode": 0,
     "score": 8.6,
     "verdict": "KEEP"
+  },
+  {
+    "id": "V9_visual_quality",
+    "script": "autolab/run_v9_recovery.py",
+    "status": "done",
+    "priority": 6,
+    "hypothesis": "Variety-safe visual boost; prior v1 REJECT 8.44 vs 8.60",
+    "depends_on": "V8_tears_reaction",
+    "returncode": 1,
+    "score": 8.5,
+    "verdict": "REJECT",
+    "note": "v1=8.44; v2 recovery"
   }
 ]
