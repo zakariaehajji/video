@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from wedding_v3.ranking import RankedPick
+from wedding_v3.shots import color_distance
 from wedding_v3.titles import TITLE_CARDS
+
+COLOR_CONTINUITY = os.environ.get("WEDDING_V3_COLOR_CONTINUITY", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 
 @dataclass
@@ -59,6 +67,19 @@ def critique_plan(picks: list[RankedPick], profile: str = "") -> Critique:
     # consecutive same video
     consec = sum(1 for a, b in zip(videos, videos[1:]) if a == b)
     continuity = 1.0 - min(1.0, consec / max(1, n - 1))
+
+    # Color-jump continuity: large LAB jumps feel like stock-footage collage.
+    harsh_color = 0
+    if COLOR_CONTINUITY and n >= 2:
+        dists = [color_distance(a.shot, b.shot) for a, b in zip(picks, picks[1:])]
+        mean_jump = sum(dists) / len(dists)
+        # mean_jump ~0.2 good, ~0.6 harsh
+        color_cont = max(0.0, 1.0 - min(1.0, (mean_jump - 0.12) / 0.55))
+        continuity = 0.55 * continuity + 0.45 * color_cont
+        harsh_color = sum(1 for d in dists if d >= 0.55)
+        if harsh_color >= max(2, n // 5):
+            problems.append("harsh color jumps between cuts")
+            recs.append("prefer palette-similar adjacent shots or grade toward film look")
 
     roles = [p.beat.role for p in picks]
     role_counts = Counter(roles)
@@ -137,6 +158,8 @@ def critique_plan(picks: list[RankedPick], profile: str = "") -> Critique:
     if TITLE_CARDS:
         polish = min(1.0, polish + 0.18)
         wedding = min(1.0, wedding + 0.06)
+    if harsh_color >= max(2, n // 5):
+        polish = max(0.35, polish - 0.08)
 
     if consec >= 3:
         problems.append("same source repeated consecutively")

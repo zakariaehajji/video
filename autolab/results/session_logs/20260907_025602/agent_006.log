@@ -1,0 +1,25 @@
+EXPERIMENT: V10_continuity_color — palette-aware shot chaining + mild film-look grading to cut stock-footage color jumps (keeps V5 pace-hold, V7 titles, V8 tears; no V9 VISUAL_BOOST)
+
+FILES_CHANGED:
+- `wedding_v3/shots.py` — LAB/sat color features; schema `v4_color_continuity`
+- `wedding_v3/ranking.py` — `WEDDING_V3_COLOR_CONTINUITY` ranking
+- `wedding_v3/cinematic.py` — `WEDDING_V3_COLOR_MATCH` adaptive grade
+- `wedding_v3/critic.py` — gated color-jump continuity
+- `autolab/run_v10_continuity.py` — experiment runner
+- state/log/EVAL/pending updated; `Output/autolab/BEST_v10.mp4` promoted (V8/V3 untouched)
+
+COMMANDS_RUN:
+- `python -c` import/schema check
+- `PYTHONPATH=... python autolab/run_v10_continuity.py` (pool rebuild + render + eval)
+
+RENDER: yes — `Output/autolab/V10/autolab_continuity_color/candidate_01_emotional_A_emotion.mp4` (~19.2 MB); also candidate_02; promoted `Output/autolab/BEST_v10.mp4`
+
+EVALUATION: overall 8.69 vs V8 8.60 (+0.09). Variety 10.0; 12 color-match picks; mean adj color dist 0.269; 1 harsh jump. Continuity 8.57 (color-aware critic). Visual still weak (6.32).
+
+SCORE: 8.69
+
+DECISION: KEEP — new best; V8/V3 baselines preserved
+
+REMAINING_WEAKNESS: visual_quality ~6.3; pacing 7.5; emotion detection still soft; critic/human gap
+
+NEXT_EXPERIMENT: V11_emotion_peak_polish — hold peak emotion shots longer without chopping music sync

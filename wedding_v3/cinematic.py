@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
 from wedding_v3.ranking import RankedPick
 from wedding_v3.titles import TITLE_CARDS, bookend_silent
+
+# V10: pull each clip toward a shared warm wedding film look using measured LAB.
+COLOR_MATCH = os.environ.get("WEDDING_V3_COLOR_MATCH", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
+# Target mid-tone warm film look (L, a, b) — soft wedding grade.
+_FILM_L, _FILM_A, _FILM_B = 52.0, 4.0, 10.0
 
 
 def run(cmd: list[str]) -> None:
@@ -15,17 +26,63 @@ def run(cmd: list[str]) -> None:
         raise RuntimeError((p.stderr or "ffmpeg fail")[-2500:])
 
 
-def _grade(role: str) -> str:
+def _clamp(x: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, x))
+
+
+def _grade(role: str, shot=None, prev_shot=None) -> str:
     if role == "detail":
-        return "eq=contrast=1.12:saturation=1.16:brightness=0.03:gamma=0.96,unsharp=5:5:0.65:5:5:0.0"
-    if role == "portrait":
-        return "eq=contrast=1.1:saturation=1.14:brightness=0.04:gamma=0.97,unsharp=3:3:0.55:3:3:0.0"
-    if role == "motion":
-        return "eq=contrast=1.12:saturation=1.18:brightness=0.02:gamma=0.95"
-    return "eq=contrast=1.08:saturation=1.1:brightness=0.035:gamma=0.98"
+        base = "eq=contrast=1.12:saturation=1.16:brightness=0.03:gamma=0.96,unsharp=5:5:0.65:5:5:0.0"
+        contrast, sat, bright, gamma = 1.12, 1.16, 0.03, 0.96
+        unsharp = ",unsharp=5:5:0.65:5:5:0.0"
+    elif role == "portrait":
+        base = "eq=contrast=1.1:saturation=1.14:brightness=0.04:gamma=0.97,unsharp=3:3:0.55:3:3:0.0"
+        contrast, sat, bright, gamma = 1.10, 1.14, 0.04, 0.97
+        unsharp = ",unsharp=3:3:0.55:3:3:0.0"
+    elif role == "motion":
+        base = "eq=contrast=1.12:saturation=1.18:brightness=0.02:gamma=0.95"
+        contrast, sat, bright, gamma = 1.12, 1.18, 0.02, 0.95
+        unsharp = ""
+    else:
+        base = "eq=contrast=1.08:saturation=1.1:brightness=0.035:gamma=0.98"
+        contrast, sat, bright, gamma = 1.08, 1.10, 0.035, 0.98
+        unsharp = ""
+
+    if not COLOR_MATCH or shot is None:
+        return base
+
+    L = float(getattr(shot, "color_l", _FILM_L) or _FILM_L)
+    a = float(getattr(shot, "color_a", _FILM_A) or _FILM_A)
+    b = float(getattr(shot, "color_b", _FILM_B) or _FILM_B)
+    sat_m = float(getattr(shot, "color_sat", 0.35) or 0.35)
+
+    # Pull brightness toward film mid-tone; mild.
+    bright += _clamp((_FILM_L - L) / 220.0, -0.06, 0.06)
+    # Cool shots (low b) get slight warm bias via gamma/sat; warm get gentler sat.
+    warm_delta = _FILM_B - b
+    gamma += _clamp(-warm_delta / 180.0, -0.04, 0.04)
+    sat += _clamp((_FILM_A - a) / 80.0, -0.08, 0.08)
+    if sat_m < 0.22:
+        sat += 0.06
+    elif sat_m > 0.55:
+        sat -= 0.04
+
+    # Soft bridge toward previous clip exposure (reduces cut jumps).
+    if prev_shot is not None:
+        pL = float(getattr(prev_shot, "color_l", L) or L)
+        bright += _clamp((pL - L) / 320.0, -0.035, 0.035)
+
+    contrast = _clamp(contrast, 1.02, 1.22)
+    sat = _clamp(sat, 0.95, 1.28)
+    bright = _clamp(bright, -0.05, 0.09)
+    gamma = _clamp(gamma, 0.90, 1.05)
+    return (
+        f"eq=contrast={contrast:.3f}:saturation={sat:.3f}:"
+        f"brightness={bright:.4f}:gamma={gamma:.3f}{unsharp}"
+    )
 
 
-def extract_shot(pick: RankedPick, out: Path) -> Path:
+def extract_shot(pick: RankedPick, out: Path, prev_shot=None) -> Path:
     shot = pick.shot
     beat = pick.beat
     need = beat.dur
@@ -41,14 +98,15 @@ def extract_shot(pick: RankedPick, out: Path) -> Path:
     src_dur = need * (0.55 if slow else 1.0)
     src_dur = min(src_dur, max(0.4, shot.end - start - 0.02))
 
+    grade = _grade(beat.role, shot=shot, prev_shot=prev_shot)
     vf = (
         f"scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,"
-        f"{_grade(beat.role)},fps=30,format=yuv420p"
+        f"{grade},fps=30,format=yuv420p"
     )
     if slow:
         vf = (
             f"scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,"
-            f"{_grade(beat.role)},setpts=PTS/{0.55},fps=30,format=yuv420p"
+            f"{grade},setpts=PTS/{0.55},fps=30,format=yuv420p"
         )
         # After setpts, trim to need via -t on output
     run([
@@ -160,7 +218,8 @@ def render_montage(
     parts: list[Path] = []
     for i, pick in enumerate(picks):
         part = work / f"{i:03d}_{pick.beat.role}.mp4"
-        extract_shot(pick, part)
+        prev = picks[i - 1].shot if i > 0 else None
+        extract_shot(pick, part, prev_shot=prev)
         # pad/trim exact duration for xfade stability
         exact = work / f"{i:03d}_exact.mp4"
         run([

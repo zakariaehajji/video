@@ -6,11 +6,17 @@ import os
 from dataclasses import dataclass
 from typing import Sequence
 
-from wedding_v3.shots import Shot
+from wedding_v3.shots import Shot, color_distance
 from wedding_v3.story import PlannedBeat
 
 # V9 experiment gate: prefer sharper / higher cinematic shots to lift visual_quality.
 VISUAL_BOOST = os.environ.get("WEDDING_V3_VISUAL_BOOST", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+# V10: prefer palette-similar cuts across sources (reduces stock-footage jumps).
+COLOR_CONTINUITY = os.environ.get("WEDDING_V3_COLOR_CONTINUITY", "0").strip().lower() in (
     "1",
     "true",
     "yes",
@@ -57,17 +63,22 @@ WEIGHT_PROFILES = {
 
 
 def _effective_weights(profile: str) -> dict[str, float]:
-    """Return ranking weights; when VISUAL_BOOST, shift mass toward visual."""
+    """Return ranking weights; optional VISUAL_BOOST / COLOR_CONTINUITY shifts."""
     w = dict(WEIGHT_PROFILES[profile])
-    if not VISUAL_BOOST:
-        return w
-    # Lift visual preference without starving variety (V9v1 over-cut variety→6.36).
-    w["visual"] = min(0.24, w["visual"] + 0.07)
-    w["variety"] = max(0.06, w["variety"] - 0.01)
-    w["continuity"] = max(0.07, w["continuity"] - 0.01)
-    total = sum(w.values())
-    if total > 0:
-        w = {k: v / total for k, v in w.items()}
+    if VISUAL_BOOST:
+        # Lift visual preference without starving variety (V9v1 over-cut variety→6.36).
+        w["visual"] = min(0.24, w["visual"] + 0.07)
+        w["variety"] = max(0.06, w["variety"] - 0.01)
+        w["continuity"] = max(0.07, w["continuity"] - 0.01)
+    if COLOR_CONTINUITY:
+        # More mass on continuity; do not starve emotion/story (V8 strengths).
+        w["continuity"] = min(0.16, w["continuity"] + 0.05)
+        w["variety"] = max(0.05, w["variety"] - 0.01)
+        w["visual"] = max(0.12, w["visual"] - 0.02)
+    if VISUAL_BOOST or COLOR_CONTINUITY:
+        total = sum(w.values())
+        if total > 0:
+            w = {k: v / total for k, v in w.items()}
     return w
 
 
@@ -101,6 +112,7 @@ def score_shot(
     weights: dict[str, float],
     recent_videos: Sequence[str],
     recent_ids: Sequence[str],
+    recent_shots: Sequence[Shot] | None = None,
 ) -> tuple[float, list[str]]:
     reasons = []
     emotion = shot.emotion_score
@@ -132,15 +144,36 @@ def score_shot(
         elif shot.shot_type == beat.role:
             continuity = 0.85
 
+    # V10: color match to previous pick across different sources (stock-footage fix).
+    if COLOR_CONTINUITY and recent_shots:
+        prev = recent_shots[-1]
+        dist = color_distance(shot, prev)
+        # Smooth map: dist 0 → 1.0, dist 0.5 → ~0.45, dist 1+ → floor
+        color_fit = max(0.12, 1.0 - min(1.15, dist * 1.35))
+        if shot.video in recent_videos[-1:]:
+            # Still punish consecutive same source, but mild color can't override it.
+            continuity = min(continuity, 0.22 + 0.15 * color_fit)
+        else:
+            # Blend role continuity with palette similarity.
+            continuity = 0.35 * continuity + 0.65 * color_fit
+            if color_fit >= 0.72:
+                reasons.append("color-match")
+            elif color_fit <= 0.35:
+                reasons.append("color-jump")
+                continuity *= 0.85
+
     variety = 1.0
     if shot.id in recent_ids:
         variety = 0.0
         reasons.append("exact-reuse")
     elif shot.video in recent_videos[-3:]:
-        variety = 0.30 if VISUAL_BOOST else 0.45
+        variety = 0.30 if VISUAL_BOOST else (0.40 if COLOR_CONTINUITY else 0.45)
         reasons.append("recent-video")
     elif VISUAL_BOOST and recent_videos.count(shot.video) >= 2:
         variety = 0.55
+        reasons.append("source-overuse")
+    elif COLOR_CONTINUITY and recent_videos.count(shot.video) >= 2:
+        variety = 0.50
         reasons.append("source-overuse")
 
     # peak payoff boost
@@ -226,6 +259,21 @@ def score_shot(
         if beat.section in ("intro", "outro") and cq < 0.53:
             total *= 0.88
             reasons.append("bookend-quality")
+    # V10: mild warmth preference (wedding film look) without hard filtering.
+    if COLOR_CONTINUITY:
+        warmth = float(getattr(shot, "color_b", 0.0) or 0.0)  # +b = yellow/warm
+        if warmth < -4.0:
+            total *= 0.94
+            reasons.append("cool-palette")
+        elif warmth >= 6.0:
+            total *= 1.03
+            reasons.append("warm-palette")
+        if beat.section in ("intro", "outro"):
+            # Bookends: avoid extreme brightness jumps vs film mid-tones.
+            L = float(getattr(shot, "color_l", 50.0) or 50.0)
+            if L < 28.0 or L > 78.0:
+                total *= 0.90
+                reasons.append("bookend-exposure")
     if story >= 0.99:
         reasons.append(f"role:{beat.role}")
     return float(total), reasons
@@ -240,6 +288,7 @@ def allocate(
     picks: list[RankedPick] = []
     recent_videos: list[str] = []
     recent_ids: list[str] = []
+    recent_shots: list[Shot] = []
     used_ids: set[str] = set()
 
     for beat in beats:
@@ -256,12 +305,16 @@ def allocate(
             # duration feasibility
             if s.duration + 0.05 < min(0.7, beat.dur * 0.6):
                 continue
-            sc, reasons = score_shot(s, beat, weights, recent_videos, recent_ids)
+            sc, reasons = score_shot(
+                s, beat, weights, recent_videos, recent_ids, recent_shots
+            )
             scored.append((sc, s, reasons))
         if not scored:
             # fallback any
             for s in shots:
-                sc, reasons = score_shot(s, beat, weights, recent_videos, recent_ids)
+                sc, reasons = score_shot(
+                    s, beat, weights, recent_videos, recent_ids, recent_shots
+                )
                 scored.append((sc, s, reasons))
         scored.sort(key=lambda x: x[0], reverse=True)
         sc, s, reasons = scored[0]
@@ -271,7 +324,9 @@ def allocate(
         used_ids.add(s.id)
         recent_videos.append(s.video)
         recent_ids.append(s.id)
+        recent_shots.append(s)
         if len(recent_videos) > 6:
             recent_videos.pop(0)
             recent_ids.pop(0)
+            recent_shots.pop(0)
     return picks

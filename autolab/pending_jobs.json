@@ -64,5 +64,16 @@
     "score": 8.5,
     "verdict": "REJECT",
     "note": "v1=8.44; v2 recovery"
+  },
+  {
+    "id": "V10_continuity_color",
+    "script": "autolab/run_v10_continuity.py",
+    "status": "done",
+    "priority": 7,
+    "hypothesis": "Color/continuity matching reduces stock-footage feeling",
+    "depends_on": "V8_tears_reaction",
+    "returncode": 0,
+    "score": 8.69,
+    "verdict": "KEEP"
   }
 ]

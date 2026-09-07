@@ -14,8 +14,8 @@ import numpy as np
 from wedding_v3.emotion import analyze_video, ensure_yunet_model
 
 CACHE_DIR = Path(__file__).resolve().parents[1] / "Output" / "v3_cache" / "shots"
-# Bump when emotion/intimacy feature schema changes so stale pools are not reused.
-CACHE_SCHEMA = "v3_tears_reaction"
+# Bump when emotion/intimacy/color feature schema changes so stale pools are not reused.
+CACHE_SCHEMA = "v4_color_continuity"
 
 ROLE_HINTS = {
     "detail": ("5223", "18204", "5183", "5218"),
@@ -54,6 +54,11 @@ class Shot:
     hug: float = 0.0
     reaction: float = 0.0
     tears: float = 0.0
+    # Mean LAB + HSV saturation at best_t (color continuity / stock-footage fix).
+    color_l: float = 50.0
+    color_a: float = 0.0
+    color_b: float = 0.0
+    color_sat: float = 0.35
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -71,6 +76,41 @@ def _hint_roles(name: str) -> list[str]:
         if any(k in stem for k in keys):
             roles.append(role)
     return roles or ["couple"]
+
+
+def _sample_color(path: Path, t: float) -> tuple[float, float, float, float]:
+    """Return mean (L, a, b, sat01) near timestamp t. Defaults if unreadable."""
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        return 50.0, 0.0, 0.0, 0.35
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    frame_i = max(0, int(float(t) * fps))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_i)
+    ok, frame = cap.read()
+    if not ok:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, frame_i - int(fps)))
+        ok, frame = cap.read()
+    cap.release()
+    if not ok or frame is None:
+        return 50.0, 0.0, 0.0, 0.35
+    small = cv2.resize(frame, (160, 90))
+    lab = cv2.cvtColor(small, cv2.COLOR_BGR2LAB).astype(np.float32)
+    hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV).astype(np.float32)
+    # OpenCV LAB: L 0-255, a/b 0-255 centered ~128
+    L = float(np.mean(lab[:, :, 0]) * (100.0 / 255.0))
+    a = float(np.mean(lab[:, :, 1]) - 128.0)
+    b = float(np.mean(lab[:, :, 2]) - 128.0)
+    sat = float(np.mean(hsv[:, :, 1]) / 255.0)
+    return round(L, 3), round(a, 3), round(b, 3), round(sat, 4)
+
+
+def color_distance(a: Shot, b: Shot) -> float:
+    """Perceptual-ish LAB distance normalized to ~0..1+."""
+    dL = float(a.color_l) - float(b.color_l)
+    da = float(a.color_a) - float(b.color_a)
+    db = float(a.color_b) - float(b.color_b)
+    ds = (float(a.color_sat) - float(b.color_sat)) * 40.0
+    return float(np.sqrt(dL * dL + da * da + db * db + ds * ds) / 40.0)
 
 
 def _probe_motion(path: Path, sample_fps: float = 2.0) -> str:
@@ -190,6 +230,8 @@ def analyze_video_shots(video_path: Path, force: bool = False) -> list[Shot]:
 
         cinematic = 0.35 * tech + 0.35 * emo + 0.15 * (1.0 if stype in ("portrait", "couple") else 0.5) + 0.15 * (0.7 if motion != "high" else 0.4)
 
+        c_l, c_a, c_b, c_sat = _sample_color(video_path, float(best.t))
+
         shot = Shot(
             id=f"{video_path.stem}_{i:03d}",
             video=str(video_path).replace("\\", "/"),
@@ -215,6 +257,10 @@ def analyze_video_shots(video_path: Path, force: bool = False) -> list[Shot]:
             hug=round(hug, 4),
             reaction=round(reaction, 4),
             tears=round(tears, 4),
+            color_l=c_l,
+            color_a=c_a,
+            color_b=c_b,
+            color_sat=c_sat,
         )
         shots.append(shot)
 
