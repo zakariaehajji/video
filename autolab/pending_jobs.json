@@ -18,5 +18,17 @@
     "returncode": 0,
     "score": 8.22,
     "verdict": "KEEP"
+  },
+  {
+    "id": "V6_emotion_kiss_hug",
+    "script": "autolab/run_v6_emotion.py",
+    "status": "done",
+    "priority": 3,
+    "hypothesis": "Real kiss/hug/reaction cues raise emotion + wedding_feeling vs smile heuristic",
+    "depends_on": "V5_pace_hold_floor",
+    "returncode": 0,
+    "score": 8.42,
+    "verdict": "KEEP",
+    "note": "first render 8.14 REJECT (weak peak music_sync); recovery peak emotion floor KEEP 8.42"
   }
 ]

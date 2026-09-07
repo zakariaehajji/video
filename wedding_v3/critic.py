@@ -114,6 +114,9 @@ def critique_plan(picks: list[RankedPick], profile: str = "") -> Critique:
         emo = min(1.0, emo + 0.05)
     if "hug" in tags:
         wedding = min(1.0, wedding + 0.04)
+    if "reaction" in tags:
+        wedding = min(1.0, wedding + 0.03)
+        emo = min(1.0, emo + 0.02)
 
     polish = 0.55
     slow = sum(1 for p in picks if p.beat.want_slowmo)

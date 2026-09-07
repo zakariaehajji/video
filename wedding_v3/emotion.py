@@ -106,11 +106,17 @@ def proximity_intimacy(faces: np.ndarray, frame_shape: tuple[int, ...]) -> tuple
     return best_kiss, best_hug
 
 
-def reaction_score(smile: float, face_count: int, quality: float) -> float:
-    """Guest/reaction cue: visible face + smile without requiring couple proximity."""
+def reaction_score(smile: float, face_count: int, quality: float, kiss: float = 0.0) -> float:
+    """Guest/reaction cue: smile + faces, de-emphasized when kiss geometry dominates."""
     if face_count < 1:
         return 0.0
-    return _clip01(0.55 * smile + 0.25 * _clip01(face_count / 2.0) + 0.20 * quality)
+    # Multi-face smiles read as guest reactions; single-face smile is weaker.
+    crowd = _clip01((face_count - 1) / 2.0)
+    base = _clip01(0.48 * smile + 0.32 * crowd + 0.20 * quality)
+    # Kiss frames are intimacy, not cutaway reactions.
+    if kiss >= 0.45:
+        base *= 0.35
+    return _clip01(base)
 
 
 def _download(url: str, dest: Path) -> None:
@@ -329,7 +335,7 @@ def analyze_frame(
         smile = _clip01(0.55 * smile + 0.45 * mp_smile)
 
     kiss, hug = proximity_intimacy(faces, frame_bgr.shape)
-    reaction = reaction_score(smile, face_count, quality)
+    reaction = reaction_score(smile, face_count, quality, kiss=kiss)
 
     # Favor smiles, intimacy (kiss/hug), visible faces, usable frames.
     face_presence = _clip01(face_count / 2.0)

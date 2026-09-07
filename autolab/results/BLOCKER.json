@@ -1,8 +1,8 @@
 {
   "blocker": null,
-  "cleared_at": "2026-09-07T02:03:31.402050+00:00",
-  "note": "Shell works; V5 rendered and KEEP",
-  "best_version": "V5_pace_hold_floor",
-  "best_score": 8.22,
+  "cleared_at": "2026-09-07T02:12:14.786809+00:00",
+  "note": "V6_emotion_kiss_hug KEEP 8.42 after peak-floor recovery; V5/V3 BEST untouched",
+  "best_version": "V6_emotion_kiss_hug",
+  "best_score": 8.42,
   "renders_executed": true
 }

@@ -115,19 +115,24 @@ def score_shot(
     kiss = float(getattr(shot, "kiss", 0.0) or 0.0)
     hug = float(getattr(shot, "hug", 0.0) or 0.0)
     reaction = float(getattr(shot, "reaction", 0.0) or 0.0)
+    intimacy = max(kiss, hug * 0.9)
     if beat.is_peak and kiss >= 0.40:
-        peak = min(1.0, peak + 0.35)
-        emotion = min(1.0, emotion + 0.12)
+        peak = min(1.0, peak + 0.40)
+        emotion = min(1.0, emotion + 0.16)
         reasons.append("kiss-on-peak")
     elif beat.is_peak and hug >= 0.50:
-        peak = min(1.0, peak + 0.22)
-        emotion = min(1.0, emotion + 0.08)
+        peak = min(1.0, peak + 0.28)
+        emotion = min(1.0, emotion + 0.12)
         reasons.append("hug-on-peak")
+    elif beat.is_peak and intimacy >= 0.30:
+        peak = min(1.0, peak + 0.12)
+        emotion = min(1.0, emotion + 0.06)
+        reasons.append("near-intimacy-peak")
     if beat.role in ("couple", "portrait") and (kiss >= 0.35 or hug >= 0.45):
-        story = min(1.0, story + 0.12)
+        story = min(1.0, story + 0.15)
         reasons.append("intimacy-role-fit")
     if beat.section in ("chorus", "peak", "outro") and reaction >= 0.55 and shot.faces >= 1:
-        emotion = min(1.0, emotion + 0.06)
+        emotion = min(1.0, emotion + 0.08)
         reasons.append("reaction-cutaway")
 
     w = weights
@@ -140,6 +145,14 @@ def score_shot(
         + w["continuity"] * continuity
         + w["variety"] * variety
     )
+    # Reserve strong kiss/hug for peaks — burning them on intro/build wastes wedding feeling.
+    if intimacy >= 0.40 and not beat.is_peak and beat.section in ("intro", "build", "verse"):
+        total *= 0.82
+        reasons.append("intimacy-reserved")
+    # Critic hard-penalizes any peak with emotion_score < 0.35 (music_sync *= 0.85).
+    if beat.is_peak and shot.emotion_score < 0.35:
+        total *= 0.55
+        reasons.append("weak-peak-emotion")
     if story >= 0.99:
         reasons.append(f"role:{beat.role}")
     return float(total), reasons

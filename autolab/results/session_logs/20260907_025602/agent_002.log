@@ -1,0 +1,43 @@
+EXPERIMENT: V6_emotion_kiss_hug (kiss/hug/reaction pool rebuild + peak intimacy reserve + peak emotion floor)
+
+FILES_CHANGED:
+- `wedding_v3/shots.py` — `CACHE_SCHEMA=v2_kiss_hug_reaction`
+- `wedding_v3/emotion.py` — reaction vs kiss separation
+- `wedding_v3/ranking.py` — kiss/hug peak boosts, intimacy-reserve, weak-peak penalty
+- `wedding_v3/critic.py` — reaction tag bump
+- `autolab/run_v6_emotion.py`, `autolab/run_v6_recovery.py`
+- `Output/autolab/V6/**`, `Output/autolab/BEST_v6.mp4`, rebuilt shot pool, lab state/logs
+
+COMMANDS_RUN:
+- Inspected stale pool (kiss/hug all missing/0)
+- `.venv\Scripts\python.exe autolab\run_v6_emotion.py`
+- `.venv\Scripts\python.exe autolab\run_v6_recovery.py`
+- ffprobe + DB promote of V6
+
+RENDER:
+- First: `Output/autolab/V6/autolab_kiss_hug/...` → 8.14 REJECT
+- Recovery: `Output/autolab/V6/autolab_kiss_hug_v2/candidate_02_emotional_D_balanced.mp4` (~35.2s)
+- Promoted: `Output/autolab/BEST_v6.mp4` (V3/V5 BEST untouched)
+
+EVALUATION:
+- Pool: 3 kiss / 14 hug / 2 reaction positives
+- First pass: wedding_feeling 10.0 but music_sync 6.2 → REJECT
+- Recovery: music_sync 8.08, wedding_feeling 10.0, emotion 7.28 → KEEP
+
+SCORE: 8.42 (V5 8.22 +0.20)
+
+DECISION: KEEP V6 as new best
+
+REMAINING_WEAKNESS: emotion still ~7.3; visual_quality ~6.2; no title cards; weak tears/true reactions
+
+NEXT_EXPERIMENT: V7_title_cards
+First V6: wedding_feeling 10.0 but music_sync 6.2 (weak peak emo<0.35) → 8.14 REJECT
+- Recovery: music_sync 8.08, wedding_feeling 10.0, emotion 7.28, pacing 7.5, polish 8.0 → 8.42 KEEP
+
+SCORE: 8.42 (V5 8.22 +0.20; V3 8.15 +0.27)
+
+DECISION: KEEP V6_emotion_kiss_hug as new best (critic). Prior BEST_v5 preserved as archive reference.
+
+REMAINING_WEAKNESS: emotion still ~7.3 (smile/geometry limited); visual_quality ~6.2; no title/outro cards; tears/true reaction still weak; stock-footage feel.
+
+NEXT_EXPERIMENT: V7_title_cards — soft title/outro cards for polish + wedding feeling; then V7_tears_reaction.

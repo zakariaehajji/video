@@ -14,6 +14,8 @@ import numpy as np
 from wedding_v3.emotion import analyze_video, ensure_yunet_model
 
 CACHE_DIR = Path(__file__).resolve().parents[1] / "Output" / "v3_cache" / "shots"
+# Bump when emotion/intimacy feature schema changes so stale pools are not reused.
+CACHE_SCHEMA = "v2_kiss_hug_reaction"
 
 ROLE_HINTS = {
     "detail": ("5223", "18204", "5183", "5218"),
@@ -117,7 +119,9 @@ def _split_windows(duration: float, win: float = 2.2, hop: float = 1.1) -> list[
 def analyze_video_shots(video_path: Path, force: bool = False) -> list[Shot]:
     video_path = Path(video_path)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    key = hashlib.md5(f"{video_path.resolve()}:{video_path.stat().st_mtime}".encode()).hexdigest()[:16]
+    key = hashlib.md5(
+        f"{CACHE_SCHEMA}:{video_path.resolve()}:{video_path.stat().st_mtime}".encode()
+    ).hexdigest()[:16]
     cache = CACHE_DIR / f"{video_path.stem}_{key}.json"
     if cache.exists() and not force:
         data = json.loads(cache.read_text(encoding="utf-8"))
