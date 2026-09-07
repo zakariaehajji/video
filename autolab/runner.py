@@ -8,10 +8,12 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from autolab.paths import AGENTS_DIR, ROOT, V3_CACHE, ensure_dirs
-from autolab.strategist import Strategy
+
+if TYPE_CHECKING:
+    from autolab.strategist import Strategy
 
 
 def find_cursor_agent() -> str | None:
@@ -31,7 +33,7 @@ def find_cursor_agent() -> str | None:
     return None
 
 
-def queue_cursor_task(strategy: Strategy) -> Path:
+def queue_cursor_task(strategy: "Strategy") -> Path:
     """Write a durable task file Cursor Agent (or a human) can execute."""
     ensure_dirs()
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -51,7 +53,7 @@ def queue_cursor_task(strategy: Strategy) -> Path:
     return path
 
 
-def run_with_cursor(strategy: Strategy, timeout_sec: int = 1800) -> dict[str, Any]:
+def run_with_cursor(strategy: "Strategy", timeout_sec: int = 1800) -> dict[str, Any]:
     task_path = queue_cursor_task(strategy)
     agent = find_cursor_agent()
     if not agent:

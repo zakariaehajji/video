@@ -37,11 +37,13 @@ def main() -> int:
     except Exception:
         pass
 
+    # Lean config: match V3 best combo (emotional + A_emotion) so a 3-min
+    # supervisor gate can still produce a real mp4 + critic score.
     run_result = run_pipeline(
         {
-            "styles": ["emotional", "classic"],
+            "styles": ["emotional"],
             "profiles": ["A_emotion"],
-            "render_top": 2,
+            "render_top": 1,
             "tag": TAG,
             "audio_stem": "music_428",
             "out_root": "Output/autolab/V4",
