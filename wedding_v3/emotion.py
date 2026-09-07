@@ -41,6 +41,7 @@ class FrameMoment:
     kiss: float = 0.0
     hug: float = 0.0
     reaction: float = 0.0
+    tears: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -106,13 +107,86 @@ def proximity_intimacy(faces: np.ndarray, frame_shape: tuple[int, ...]) -> tuple
     return best_kiss, best_hug
 
 
-def reaction_score(smile: float, face_count: int, quality: float, kiss: float = 0.0) -> float:
-    """Guest/reaction cue: smile + faces, de-emphasized when kiss geometry dominates."""
+def tear_score(
+    faces: np.ndarray,
+    gray: np.ndarray,
+    smile: float,
+    quality: float,
+) -> float:
+    """Estimate tearful / solemn emotion from under-eye sheen + subdued smile.
+
+    Pure local heuristics on YuNet boxes/landmarks — no paid APIs.
+    """
+    if faces is None or len(faces) < 1 or gray.size == 0:
+        return 0.0
+    h, w = gray.shape[:2]
+    best = 0.0
+    for face in faces:
+        x, y, fw, fh = [float(v) for v in face[:4]]
+        if fw < 18 or fh < 22:
+            continue
+        xi, yi = int(max(0, x)), int(max(0, y))
+        x2, y2 = int(min(w, x + fw)), int(min(h, y + fh))
+        if x2 - xi < 16 or y2 - yi < 20:
+            continue
+        # YuNet: right-eye, left-eye landmarks (image coords).
+        re_x, re_y, le_x, le_y = [float(v) for v in face[4:8]]
+        eye_cy = 0.5 * (re_y + le_y)
+        eye_span = abs(le_x - re_x) / max(fw, 1.0)
+        # Under-eye band: just below eyes, above mid-face.
+        uy0 = int(np.clip(eye_cy + 0.02 * fh, yi, y2 - 1))
+        uy1 = int(np.clip(eye_cy + 0.22 * fh, uy0 + 2, y2))
+        ux0 = int(np.clip(min(re_x, le_x) - 0.05 * fw, xi, x2 - 1))
+        ux1 = int(np.clip(max(re_x, le_x) + 0.05 * fw, ux0 + 2, x2))
+        under = gray[uy0:uy1, ux0:ux1]
+        cheek_y0 = int(np.clip(y + 0.55 * fh, yi, y2 - 1))
+        cheek_y1 = int(np.clip(y + 0.78 * fh, cheek_y0 + 2, y2))
+        cheek = gray[cheek_y0:cheek_y1, xi:x2]
+        if under.size < 8 or cheek.size < 8:
+            continue
+        under_mean = float(np.mean(under))
+        cheek_mean = float(np.mean(cheek))
+        # Tear sheen: under-eye brighter / glossier than cheek.
+        sheen = _clip01((under_mean - cheek_mean) / 28.0)
+        under_std = float(np.std(under))
+        gloss = _clip01((under_std - 8.0) / 22.0)
+        # Solemn / crying faces: present eyes, NOT a big grin.
+        solemn = _clip01(0.55 - smile)  # peaks when smile is low-moderate
+        eye_presence = _clip01((eye_span - 0.22) / 0.28)
+        face_frac = (fw * fh) / float(max(w * h, 1))
+        closeup = _clip01((face_frac - 0.03) / 0.10)
+        cue = _clip01(
+            0.34 * sheen
+            + 0.22 * gloss
+            + 0.24 * solemn
+            + 0.12 * eye_presence
+            + 0.08 * closeup
+        )
+        cue *= _clip01(0.55 + 0.45 * quality)
+        # Very high smile is celebration, not tears.
+        if smile >= 0.62:
+            cue *= 0.25
+        best = max(best, cue)
+    return _clip01(best)
+
+
+def reaction_score(
+    smile: float,
+    face_count: int,
+    quality: float,
+    kiss: float = 0.0,
+    tears: float = 0.0,
+) -> float:
+    """Guest/reaction cue: smile, crowd, tears — not kiss intimacy frames."""
     if face_count < 1:
         return 0.0
-    # Multi-face smiles read as guest reactions; single-face smile is weaker.
     crowd = _clip01((face_count - 1) / 2.0)
-    base = _clip01(0.48 * smile + 0.32 * crowd + 0.20 * quality)
+    # Warm guest smile OR tearful solemn reaction both count.
+    affective = max(smile, tears * 0.95)
+    base = _clip01(0.38 * affective + 0.28 * crowd + 0.18 * quality + 0.16 * tears)
+    # Single-face tearful close-up is a classic cutaway.
+    if face_count == 1 and tears >= 0.40:
+        base = max(base, _clip01(0.55 * tears + 0.25 * quality + 0.10))
     # Kiss frames are intimacy, not cutaway reactions.
     if kiss >= 0.45:
         base *= 0.35
@@ -335,21 +409,26 @@ def analyze_frame(
         smile = _clip01(0.55 * smile + 0.45 * mp_smile)
 
     kiss, hug = proximity_intimacy(faces, frame_bgr.shape)
-    reaction = reaction_score(smile, face_count, quality, kiss=kiss)
+    tears = tear_score(faces, gray, smile=smile, quality=quality)
+    reaction = reaction_score(smile, face_count, quality, kiss=kiss, tears=tears)
 
-    # Favor smiles, intimacy (kiss/hug), visible faces, usable frames.
+    # Favor smiles, intimacy (kiss/hug), tears/reactions, visible faces, usable frames.
     face_presence = _clip01(face_count / 2.0)
     intimacy = max(kiss, hug * 0.85)
     emotion = _clip01(
-        0.32 * smile
-        + 0.22 * intimacy
-        + 0.16 * face_presence
-        + 0.18 * quality
-        + 0.12 * min(face_count, 3) / 3.0
+        0.28 * smile
+        + 0.18 * intimacy
+        + 0.14 * tears
+        + 0.10 * reaction
+        + 0.14 * face_presence
+        + 0.16 * quality
     )
     # Kiss/hug frames are wedding-critical even if smile heuristic is weak.
     if kiss >= 0.45 or hug >= 0.55:
         emotion = _clip01(max(emotion, 0.55 * emotion + 0.45 * intimacy + 0.08))
+    # Tearful / solemn faces are true emotional peaks beyond grin heuristics.
+    if tears >= 0.42:
+        emotion = _clip01(max(emotion, 0.50 * emotion + 0.42 * tears + 0.10 * quality))
 
     return FrameMoment(
         t=float(t),
@@ -361,6 +440,7 @@ def analyze_frame(
         kiss=kiss,
         hug=hug,
         reaction=reaction,
+        tears=tears,
     )
 
 

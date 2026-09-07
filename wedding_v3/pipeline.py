@@ -121,16 +121,33 @@ def run_candidates(
         print("  iterating: reinforcing peak emotion picks", flush=True)
         picks = best["picks"]
         peak_idxs = [i for i, p in enumerate(picks) if p.beat.is_peak]
-        smile_shots = sorted(shots, key=lambda s: (s.smile, s.emotion_score), reverse=True)
+        emotion_shots = sorted(
+            shots,
+            key=lambda s: (
+                max(
+                    float(getattr(s, "tears", 0.0) or 0.0),
+                    float(getattr(s, "kiss", 0.0) or 0.0),
+                    float(getattr(s, "reaction", 0.0) or 0.0) * 0.9,
+                    s.smile * 0.85,
+                ),
+                s.emotion_score,
+            ),
+            reverse=True,
+        )
         used = {p.shot.id for p in picks}
         for i in peak_idxs:
-            for s in smile_shots:
+            for s in emotion_shots:
                 if s.id in used:
                     continue
                 if s.faces >= 1 and s.emotion_score >= picks[i].shot.emotion_score:
                     from wedding_v3.ranking import RankedPick
 
-                    picks[i] = RankedPick(beat=picks[i].beat, shot=s, score=picks[i].score + 0.1, reasons=["iter-peak-upgrade"])
+                    picks[i] = RankedPick(
+                        beat=picks[i].beat,
+                        shot=s,
+                        score=picks[i].score + 0.1,
+                        reasons=["iter-peak-upgrade"],
+                    )
                     used.add(s.id)
                     break
         critique2 = critique_plan(picks)

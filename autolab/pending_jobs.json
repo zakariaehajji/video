@@ -41,5 +41,16 @@
     "returncode": 0,
     "score": 8.47,
     "verdict": "KEEP"
+  },
+  {
+    "id": "V8_tears_reaction",
+    "script": "autolab/run_v8_tears.py",
+    "status": "done",
+    "priority": 5,
+    "hypothesis": "Stronger tear/reaction cues lift emotion beyond proximity kiss/hug",
+    "depends_on": "V7_title_cards",
+    "returncode": 0,
+    "score": 8.6,
+    "verdict": "KEEP"
   }
 ]

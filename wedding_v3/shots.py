@@ -15,7 +15,7 @@ from wedding_v3.emotion import analyze_video, ensure_yunet_model
 
 CACHE_DIR = Path(__file__).resolve().parents[1] / "Output" / "v3_cache" / "shots"
 # Bump when emotion/intimacy feature schema changes so stale pools are not reused.
-CACHE_SCHEMA = "v2_kiss_hug_reaction"
+CACHE_SCHEMA = "v3_tears_reaction"
 
 ROLE_HINTS = {
     "detail": ("5223", "18204", "5183", "5218"),
@@ -53,6 +53,7 @@ class Shot:
     kiss: float = 0.0
     hug: float = 0.0
     reaction: float = 0.0
+    tears: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -160,6 +161,7 @@ def analyze_video_shots(video_path: Path, force: bool = False) -> list[Shot]:
         kiss = float(max(getattr(m, "kiss", 0.0) for m in inside))
         hug = float(max(getattr(m, "hug", 0.0) for m in inside))
         reaction = float(max(getattr(m, "reaction", 0.0) for m in inside))
+        tears = float(max(getattr(m, "tears", 0.0) for m in inside))
 
         # shot type
         if faces == 0:
@@ -177,7 +179,9 @@ def analyze_video_shots(video_path: Path, force: bool = False) -> list[Shot]:
             tags.append("kiss")
         if hug >= 0.50:
             tags.append("hug")
-        if reaction >= 0.55 and faces >= 1:
+        if tears >= 0.42:
+            tags.append("tears")
+        if reaction >= 0.50 and faces >= 1:
             tags.append("reaction")
         if peak > 0.75:
             tags.append("emotional_peak")
@@ -210,6 +214,7 @@ def analyze_video_shots(video_path: Path, force: bool = False) -> list[Shot]:
             kiss=round(kiss, 4),
             hug=round(hug, 4),
             reaction=round(reaction, 4),
+            tears=round(tears, 4),
         )
         shots.append(shot)
 

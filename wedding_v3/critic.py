@@ -105,7 +105,7 @@ def critique_plan(picks: list[RankedPick], profile: str = "") -> Critique:
     for p in picks:
         tags.update(p.shot.semantic_tags)
     wedding = 0.4
-    for t in ("detail", "portrait", "couple", "smile", "emotional_peak", "kiss", "hug", "reaction"):
+    for t in ("detail", "portrait", "couple", "smile", "emotional_peak", "kiss", "hug", "reaction", "tears"):
         if t in tags or any(t in p.shot.story_roles for p in picks):
             wedding += 0.08
     wedding = min(1.0, wedding)
@@ -115,9 +115,13 @@ def critique_plan(picks: list[RankedPick], profile: str = "") -> Critique:
         emo = min(1.0, emo + 0.05)
     if "hug" in tags:
         wedding = min(1.0, wedding + 0.04)
+    if "tears" in tags:
+        wedding = min(1.0, wedding + 0.07)
+        emo = min(1.0, emo + 0.06)
+        peak_emo = min(1.0, peak_emo + 0.04)
     if "reaction" in tags:
-        wedding = min(1.0, wedding + 0.03)
-        emo = min(1.0, emo + 0.02)
+        wedding = min(1.0, wedding + 0.04)
+        emo = min(1.0, emo + 0.03)
 
     polish = 0.55
     slow = sum(1 for p in picks if p.beat.want_slowmo)

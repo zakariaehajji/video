@@ -1,0 +1,31 @@
+EXPERIMENT: V8_tears_reaction — under-eye tear/solemn cues + stronger guest reaction scoring, ranked into peaks/chorus while keeping pace-hold + title cards
+
+FILES_CHANGED:
+- `wedding_v3/emotion.py` — `tear_score`, improved `reaction_score`, tears in emotion blend
+- `wedding_v3/shots.py` — `tears` field, tags, `CACHE_SCHEMA=v3_tears_reaction`
+- `wedding_v3/ranking.py` — tears-on-peak / tear-reaction / reserve
+- `wedding_v3/critic.py` — tears tag emotion/wedding boosts
+- `wedding_v3/pipeline.py` — peak repair prefers tears/kiss/reaction
+- `autolab/run_v8_tears.py` — experiment runner
+- state: `lab_state.json`, `task_queue.json`, `experiment_log.md`, `pending_jobs.json`, `BLOCKER.json`, `Output/autolab/V8/EVAL.json`
+
+COMMANDS_RUN:
+- `PYTHONPATH=C:\Users\lauve\Desktop\vd .venv\Scripts\python.exe autolab\run_v8_tears.py` (~132s; force pool rebuild + 2 renders)
+
+RENDER:
+- `Output/autolab/V8/autolab_tears_reaction/candidate_01_emotional_A_emotion.mp4` (exists)
+- `Output/autolab/V8/autolab_tears_reaction/candidate_02_emotional_D_balanced.mp4` (exists)
+- Promoted: `Output/autolab/BEST_v8.mp4` (V3 BEST untouched)
+
+EVALUATION:
+- Pool: 138 shots; `tears_ge_042=35`, `reaction_ge_050=33` (was ~2 reactions @0.55)
+- Emotion 7.35→7.94; music_sync 7.93→8.34; visual_quality still weak 6.37
+- vs V7 8.47: +0.13
+
+SCORE: 8.60
+
+DECISION: KEEP
+
+REMAINING_WEAKNESS: visual_quality ~6.37 / stock-footage feeling; cinematic shot preference still weak
+
+NEXT_EXPERIMENT: V9_visual_quality — prefer higher `cinematic_quality` / technical shots to lift visual_quality without regressing emotion

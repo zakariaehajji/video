@@ -115,6 +115,7 @@ def score_shot(
     kiss = float(getattr(shot, "kiss", 0.0) or 0.0)
     hug = float(getattr(shot, "hug", 0.0) or 0.0)
     reaction = float(getattr(shot, "reaction", 0.0) or 0.0)
+    tears = float(getattr(shot, "tears", 0.0) or 0.0)
     intimacy = max(kiss, hug * 0.9)
     if beat.is_peak and kiss >= 0.40:
         peak = min(1.0, peak + 0.40)
@@ -124,6 +125,10 @@ def score_shot(
         peak = min(1.0, peak + 0.28)
         emotion = min(1.0, emotion + 0.12)
         reasons.append("hug-on-peak")
+    elif beat.is_peak and tears >= 0.42:
+        peak = min(1.0, peak + 0.32)
+        emotion = min(1.0, emotion + 0.14)
+        reasons.append("tears-on-peak")
     elif beat.is_peak and intimacy >= 0.30:
         peak = min(1.0, peak + 0.12)
         emotion = min(1.0, emotion + 0.06)
@@ -131,9 +136,17 @@ def score_shot(
     if beat.role in ("couple", "portrait") and (kiss >= 0.35 or hug >= 0.45):
         story = min(1.0, story + 0.15)
         reasons.append("intimacy-role-fit")
-    if beat.section in ("chorus", "peak", "outro") and reaction >= 0.55 and shot.faces >= 1:
+    if beat.role in ("portrait", "detail") and tears >= 0.40:
+        story = min(1.0, story + 0.12)
         emotion = min(1.0, emotion + 0.08)
+        reasons.append("tears-role-fit")
+    if beat.section in ("chorus", "peak", "outro") and reaction >= 0.50 and shot.faces >= 1:
+        emotion = min(1.0, emotion + 0.10)
         reasons.append("reaction-cutaway")
+    if beat.section in ("chorus", "peak", "bridge", "outro") and tears >= 0.45:
+        emotion = min(1.0, emotion + 0.12)
+        peak = min(1.0, peak + 0.10)
+        reasons.append("tear-reaction")
 
     w = weights
     total = (
@@ -149,6 +162,10 @@ def score_shot(
     if intimacy >= 0.40 and not beat.is_peak and beat.section in ("intro", "build", "verse"):
         total *= 0.82
         reasons.append("intimacy-reserved")
+    # Soft-reserve strong tear close-ups for emotional sections.
+    if tears >= 0.48 and beat.section in ("intro", "build") and not beat.is_peak:
+        total *= 0.88
+        reasons.append("tears-reserved")
     # Critic hard-penalizes any peak with emotion_score < 0.35 (music_sync *= 0.85).
     if beat.is_peak and shot.emotion_score < 0.35:
         total *= 0.55
