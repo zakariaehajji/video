@@ -75,5 +75,16 @@
     "returncode": 0,
     "score": 8.69,
     "verdict": "KEEP"
+  },
+  {
+    "id": "V11_emotion_peak_polish",
+    "script": "autolab/run_v11_peak_hold.py",
+    "status": "done",
+    "priority": 8,
+    "hypothesis": "Hold peak emotion shots longer without chopping music sync",
+    "depends_on": "V10_continuity_color",
+    "returncode": 1,
+    "score": 8.69,
+    "verdict": "REJECT"
   }
 ]

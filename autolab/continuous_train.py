@@ -70,12 +70,16 @@ def collect_evals() -> list[dict]:
 def run_one(script: str, round_id: int) -> int:
     py = ROOT / ".venv" / "Scripts" / "python.exe"
     cmd = [str(py), str(ROOT / script)]
+    env = dict(**{k: v for k, v in __import__("os").environ.items()})
+    env["PYTHONPATH"] = str(ROOT)
+    env["PYTHONIOENCODING"] = "utf-8"
     log(f"ROUND {round_id} START {script}")
     t0 = time.time()
     try:
         proc = subprocess.run(
             cmd,
             cwd=str(ROOT),
+            env=env,
             capture_output=True,
             text=True,
             encoding="utf-8",

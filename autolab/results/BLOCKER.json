@@ -1,7 +1,7 @@
 {
   "blocker": null,
-  "cleared_at": "2026-09-07T02:40:43.640746+00:00",
-  "note": "V10_continuity_color KEEP 8.69 vs V8 8.6",
+  "cleared_at": "2026-09-08T13:02:52.457617+00:00",
+  "note": "V11_emotion_peak_polish REJECT 8.69 vs V10 8.69",
   "best_version": "V10_continuity_color",
   "best_score": 8.69,
   "renders_executed": true

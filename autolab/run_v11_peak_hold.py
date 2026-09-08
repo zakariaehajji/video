@@ -69,8 +69,22 @@ def _peak_hold_stats(run_dir: Path) -> dict:
     }
 
 
+def _assert_wedding_pool() -> None:
+    """Refuse single-source/whatsapp pools — V10 baseline needs multi-clip wedding footage."""
+    pool_path = ROOT / "Output" / "v3_cache" / "shots" / "pool.json"
+    data = json.loads(pool_path.read_text(encoding="utf-8"))
+    videos = {str(x.get("video") or "") for x in data}
+    stems = {Path(v).stem.lower() for v in videos}
+    if len(videos) < 8 or any("whatsapp" in s for s in stems):
+        raise RuntimeError(
+            f"Corrupt/non-wedding shot pool ({len(data)} shots, {len(videos)} videos). "
+            "Restore from wedding_* caches before running V11."
+        )
+
+
 def main() -> int:
     V11_DIR.mkdir(parents=True, exist_ok=True)
+    _assert_wedding_pool()
 
     os.environ["WEDDING_V3_PACE_HOLD"] = "1"
     os.environ["WEDDING_V3_TITLE_CARDS"] = "1"

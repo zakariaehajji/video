@@ -358,13 +358,14 @@ def _emotion_intensity(shot: Shot) -> float:
 
 def polish_peak_emotion_holds(
     picks: list[RankedPick],
-    top_k: int = 5,
-    max_extend: float = 0.55,
-    min_keep: float = 1.05,
+    top_k: int = 4,
+    max_extend: float = 0.70,
+    min_keep: float = 0.95,
 ) -> list[RankedPick]:
     """Steal duration from weak peak cuts; linger on strongest emotion climaxes.
 
     Keeps contiguous timeline and total film length (music alignment preserved).
+    Creates intentional short-filler / long-climax contrast (wedding pacing).
     """
     n = len(picks)
     if n < 5:
@@ -381,8 +382,8 @@ def polish_peak_emotion_holds(
     for i in climaxes:
         cur = float(picks[i].beat.dur)
         avail = float(picks[i].shot.duration)
-        # Linger ~1.7–2.1s on true emotion peaks; respect source length.
-        target = min(2.15, max(cur + 0.30, 1.70), avail * 0.92, cur + max_extend)
+        # Linger ~1.85–2.25s on true emotion peaks; respect source length.
+        target = min(2.25, max(cur + 0.35, 1.85), avail * 0.92, cur + max_extend)
         if target > cur + 0.08:
             extensions[i] = target - cur
     need = sum(extensions.values())
@@ -402,9 +403,12 @@ def polish_peak_emotion_holds(
         floor = min_keep
         # Never shrink a strong intimacy beat below comfort.
         if _emotion_intensity(picks[i].shot) >= 0.55:
-            floor = max(floor, 1.25)
+            floor = max(floor, 1.20)
+        # Peak-section filler can go shorter to fund climax breathes.
+        if picks[i].beat.section == "peak" and _emotion_intensity(picks[i].shot) < 0.52:
+            floor = min(floor, 0.90)
         can = max(0.0, cur - floor)
-        give = min(can, remaining, 0.50)
+        give = min(can, remaining, 0.60)
         if give >= 0.06:
             shrinks[i] = give
             remaining -= give
@@ -415,6 +419,31 @@ def polish_peak_emotion_holds(
     if remaining > 0.05:
         scale = gained / need
         extensions = {i: e * scale for i, e in extensions.items()}
+
+    # If duration variance would flatten below critic pacing floor (~0.05), steal a
+    # little more from weakest mid cuts into the top climax (real short/long contrast).
+    trial = [
+        float(picks[i].beat.dur) + extensions.get(i, 0.0) - shrinks.get(i, 0.0)
+        for i in range(n)
+    ]
+    mean_t = sum(trial) / n
+    var_t = sum((d - mean_t) ** 2 for d in trial) / n
+    if var_t < 0.055 and climaxes:
+        top = climaxes[0]
+        extra_donors = sorted(
+            [i for i in donors if i not in shrinks and i != top],
+            key=lambda i: _emotion_intensity(picks[i].shot),
+        )
+        bump = 0.0
+        for i in extra_donors[:4]:
+            cur = trial[i]
+            floor = 0.90 if picks[i].beat.section == "peak" else 1.00
+            give = min(0.28, max(0.0, cur - floor))
+            if give >= 0.08:
+                shrinks[i] = shrinks.get(i, 0.0) + give
+                bump += give
+        if bump >= 0.10:
+            extensions[top] = extensions.get(top, 0.0) + bump
 
     # Rebuild contiguous beats from original start.
     t0 = float(picks[0].beat.t0)

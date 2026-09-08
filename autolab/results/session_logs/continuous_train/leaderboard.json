@@ -1,0 +1,86 @@
+[
+  {
+    "experiment": "V10_continuity_color",
+    "score": 8.69,
+    "verdict": "KEEP",
+    "best": {
+      "name": "candidate_01_emotional_A_emotion",
+      "overall": 8.69,
+      "path": "C:\\Users\\lauve\\Desktop\\vd\\Output\\autolab\\V10\\autolab_continuity_color\\candidate_01_emotional_A_emotion.mp4"
+    },
+    "updated_at": "2026-09-07T02:40:43.626534+00:00",
+    "eval_path": "C:\\Users\\lauve\\Desktop\\vd\\Output\\autolab\\V10\\EVAL.json"
+  },
+  {
+    "experiment": "V8_tears_reaction",
+    "score": 8.6,
+    "verdict": "KEEP",
+    "best": {
+      "name": "candidate_01_emotional_A_emotion",
+      "overall": 8.6,
+      "path": "C:\\Users\\lauve\\Desktop\\vd\\Output\\autolab\\V8\\autolab_tears_reaction\\candidate_01_emotional_A_emotion.mp4"
+    },
+    "updated_at": "2026-09-07T02:24:15.356613+00:00",
+    "eval_path": "C:\\Users\\lauve\\Desktop\\vd\\Output\\autolab\\V8\\EVAL.json"
+  },
+  {
+    "experiment": "V9_visual_quality",
+    "score": 8.5,
+    "verdict": "REJECT",
+    "best": {
+      "name": "candidate_02_emotional_D_balanced",
+      "overall": 8.5,
+      "path": "C:\\Users\\lauve\\Desktop\\vd\\Output\\autolab\\V9\\autolab_visual_quality_v2\\candidate_02_emotional_D_balanced.mp4"
+    },
+    "updated_at": "2026-09-07T02:32:50.009915+00:00",
+    "eval_path": "C:\\Users\\lauve\\Desktop\\vd\\Output\\autolab\\V9\\EVAL.json"
+  },
+  {
+    "experiment": "V7_title_cards",
+    "score": 8.47,
+    "verdict": "KEEP",
+    "best": {
+      "name": "candidate_01_emotional_A_emotion",
+      "overall": 8.47,
+      "path": "C:\\Users\\lauve\\Desktop\\vd\\Output\\autolab\\V7\\autolab_title_cards\\candidate_01_emotional_A_emotion.mp4"
+    },
+    "updated_at": "2026-09-07T02:18:12.013723+00:00",
+    "eval_path": "C:\\Users\\lauve\\Desktop\\vd\\Output\\autolab\\V7\\EVAL.json"
+  },
+  {
+    "experiment": "V6_emotion_kiss_hug",
+    "score": 8.42,
+    "verdict": "KEEP",
+    "best": {
+      "name": "candidate_02_emotional_D_balanced",
+      "overall": 8.42,
+      "path": "C:\\Users\\lauve\\Desktop\\vd\\Output\\autolab\\V6\\autolab_kiss_hug_v2\\candidate_02_emotional_D_balanced.mp4"
+    },
+    "updated_at": "2026-09-07T02:12:14.771426+00:00",
+    "eval_path": "C:\\Users\\lauve\\Desktop\\vd\\Output\\autolab\\V6\\EVAL.json"
+  },
+  {
+    "experiment": "V4_xfade_soft",
+    "score": 8.36,
+    "verdict": "KEEP",
+    "best": {
+      "name": "candidate_01_emotional_A_emotion",
+      "overall": 8.36,
+      "path": "C:\\Users\\lauve\\Desktop\\vd\\Output\\autolab\\V4\\autolab_xfade\\candidate_01_emotional_A_emotion.mp4"
+    },
+    "updated_at": "2026-09-07T08:58:52.246372+00:00",
+    "eval_path": "C:\\Users\\lauve\\Desktop\\vd\\Output\\autolab\\V4\\EVAL.json"
+  },
+  {
+    "experiment": "V5_pace_hold_floor",
+    "score": 8.22,
+    "verdict": "KEEP",
+    "best": {
+      "name": "candidate_02_emotional_D_balanced",
+      "overall": 8.22,
+      "path": "C:\\Users\\lauve\\Desktop\\vd\\Output\\autolab\\V5\\autolab_pace_hold\\candidate_02_emotional_D_balanced.mp4"
+    },
+    "updated_at": "2026-09-07T02:01:56.784185+00:00",
+    "eval_path": "C:\\Users\\lauve\\Desktop\\vd\\Output\\autolab\\V5\\EVAL.json"
+  }
+]

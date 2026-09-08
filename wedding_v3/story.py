@@ -111,14 +111,14 @@ def plan_story(
             base *= 0.9
         if label == "peak":
             if PEAK_HOLD and PACE_HOLD_FLOOR:
-                # V11: reverse V5 peak-shortening — fewer, longer emotion holds on climax.
-                # Target ~1.7–2.1s so peak_emo moments breathe without mean_d > 2.2.
+                # V11: keep V10-like peak cut density (avoid flattening duration variance).
+                # Climax breathes come from ranking.polish_peak_emotion_holds, not fewer cuts.
                 if style == "emotional":
-                    base = 2.05
-                    min_dur = 1.45
+                    base = min(base, 1.62)
+                    min_dur = min(min_dur, 1.05)
                 else:
-                    base = 1.85
-                    min_dur = 1.25
+                    base = min(base, 1.40)
+                    min_dur = min(min_dur, 0.90)
             elif PACE_HOLD_FLOOR:
                 base = min(base, 1.55 if style == "emotional" else 1.35)
                 min_dur = min(min_dur, 1.0 if style == "emotional" else 0.85)

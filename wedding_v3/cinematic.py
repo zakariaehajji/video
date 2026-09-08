@@ -99,23 +99,37 @@ def extract_shot(pick: RankedPick, out: Path, prev_shot=None) -> Path:
     src_dur = min(src_dur, max(0.4, shot.end - start - 0.02))
 
     grade = _grade(beat.role, shot=shot, prev_shot=prev_shot)
-    vf = (
-        f"scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,"
-        f"{grade},fps=30,format=yuv420p"
+    # Letterbox/pillarbox to 1280x720 — safe for portrait phone clips (WhatsApp etc.).
+    geom = (
+        "scale=1280:720:force_original_aspect_ratio=decrease,"
+        "pad=1280:720:(ow-iw)/2:(oh-ih)/2:black"
     )
+    if isinstance(geom, tuple):
+        geom = "".join(geom)
+    vf = f"{geom},{grade},fps=30,format=yuv420p"
     if slow:
-        vf = (
-            f"scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,"
-            f"{grade},setpts=PTS/{0.55},fps=30,format=yuv420p"
-        )
-        # After setpts, trim to need via -t on output
+        vf = f"{geom},{grade},setpts=PTS/{0.55},fps=30,format=yuv420p"
     run([
         "ffmpeg", "-y", "-ss", f"{start:.3f}", "-i", shot.video,
-        "-t", f"{src_dur:.3f}", "-an", "-vf", vf,
+        "-t", f"{max(0.45, src_dur):.3f}", "-an", "-vf", vf,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
-        "-t", f"{need:.3f}",
+        "-t", f"{max(0.45, need):.3f}",
+        "-movflags", "+faststart",
         str(out),
     ])
+    # Refuse silent/corrupt extracts early (common on odd phone encodings).
+    try:
+        if _probe_duration(out) < 0.2:
+            raise RuntimeError(f"extract too short: {out}")
+    except Exception:
+        # Fallback: simpler scale without grade
+        run([
+            "ffmpeg", "-y", "-ss", f"{start:.3f}", "-i", shot.video,
+            "-t", f"{max(0.5, need):.3f}", "-an",
+            "-vf", f"{geom},fps=30,format=yuv420p",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+            str(out),
+        ])
     return out
 
 
@@ -222,14 +236,20 @@ def render_montage(
         extract_shot(pick, part, prev_shot=prev)
         # pad/trim exact duration for xfade stability
         exact = work / f"{i:03d}_exact.mp4"
-        run([
-            "ffmpeg", "-y", "-i", str(part),
-            "-t", f"{pick.beat.dur:.3f}",
-            "-vf", "fps=30,format=yuv420p,tpad=stop_mode=clone:stop_duration=0",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
-            "-an", str(exact),
-        ])
-        parts.append(exact)
+        try:
+            run([
+                "ffmpeg", "-y", "-i", str(part),
+                "-t", f"{pick.beat.dur:.3f}",
+                "-vf", "fps=30,format=yuv420p,tpad=stop_mode=clone:stop_duration=0",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
+                "-an", str(exact),
+            ])
+            if _probe_duration(exact) < 0.15:
+                raise RuntimeError("exact too short")
+            parts.append(exact)
+        except Exception:
+            # Keep the extract as-is if the exact pass fails (portrait/phone clips).
+            parts.append(part)
 
     if use_xfade and len(parts) >= 2 and any(
         _should_xfade(picks[i - 1], picks[i]) for i in range(1, len(picks))
