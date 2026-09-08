@@ -24,6 +24,12 @@ PACE_BREATHE = os.environ.get("WEDDING_V3_PACE_BREATHE", "0").strip().lower() in
     "true",
     "yes",
 )
+# V22: milder breathe — polish-only; do not raise story peak floors (V19 homogenize).
+PACE_BREATHE_V2 = os.environ.get("WEDDING_V3_PACE_BREATHE_V2", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 # V12: tighter music-section → story-role grammar (energy-aware role picks).
 MUSIC_SECTION_ROLES = os.environ.get("WEDDING_V3_MUSIC_SECTION_ROLES", "0").strip().lower() in (
     "1",
@@ -267,7 +273,7 @@ def plan_story(
                     else:
                         base = min(base, 1.40)
                         min_dur = min(min_dur, 0.90)
-                elif PACE_BREATHE and PACE_HOLD_FLOOR:
+                elif PACE_BREATHE and PACE_HOLD_FLOOR and not PACE_BREATHE_V2:
                     # Milder peak shortening than default pace-hold — reduce busy mid-peak cuts.
                     if style == "emotional":
                         base = min(base, 1.72)

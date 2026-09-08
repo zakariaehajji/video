@@ -1,0 +1,24 @@
+EXPERIMENT: V22_pacing_breathe_v2 — milder mid-peak breathe (max 3 holds, weak-peak contrast donors, variance floor ≥0.05) stacked on V21 face-protect + reaction cutaways. Avoids V19’s bookend homogenization that crushed pacing to 5.5.
+
+FILES_CHANGED:
+- `wedding_v3/ranking.py` — `PACE_BREATHE_V2`, soft `polish_pace_breathe` (contrast donors + var guard), post-reaction polish order
+- `wedding_v3/story.py` — `PACE_BREATHE_V2` skips V19 story floor raise
+- `autolab/run_v22_pacing_breathe_v2.py` — one-shot runner
+- `Output/autolab/V22/EVAL.json`, `autolab/state/*`, `autolab/pending_jobs.json`, `autolab/results/BLOCKER.json`
+
+COMMANDS_RUN:
+- `.venv\Scripts\python.exe autolab\run_v22_pacing_breathe_v2.py` (render+eval; recovery re-run after zero-breathe abort)
+
+RENDER:
+- `Output/autolab/V22/autolab_pacing_breathe_v2/candidate_01_emotional_A_emotion.mp4` (exists, ~18MB)
+- `Output/autolab/V22/autolab_pacing_breathe_v2/candidate_02_emotional_D_balanced.mp4`
+
+EVALUATION: 3 breathes landed (`wedding_40599_002/005`, `wedding_40596_004`); `dur_var` 0.072 (vs V19’s 0.009); critique identical to V21 on all dimensions — no gain, no regression.
+
+SCORE: 8.84 (Δ vs V21 = 0.00)
+
+DECISION: REJECT — keep V21_reaction_cutaways_v2 @ 8.84; BEST_v21 untouched
+
+REMAINING_WEAKNESS: pacing still 7.5 / visual_quality 6.32; mid-peak duration polish alone doesn’t move the critic; kiss climax still under-held
+
+NEXT_EXPERIMENT: V23_kiss_hold_polish — hold strongest kiss climax longer without busy mid-peak spray

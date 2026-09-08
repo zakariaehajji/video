@@ -196,5 +196,16 @@
     "returncode": 0,
     "score": 8.84,
     "verdict": "KEEP"
+  },
+  {
+    "id": "V22_pacing_breathe_v2",
+    "script": "autolab/run_v22_pacing_breathe_v2.py",
+    "status": "done",
+    "priority": 18,
+    "hypothesis": "Milder breathe on top of face-protected + reaction grammar",
+    "depends_on": "V21_reaction_cutaways_v2",
+    "returncode": 1,
+    "score": 8.84,
+    "verdict": "REJECT"
   }
 ]
