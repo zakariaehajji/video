@@ -24,6 +24,21 @@ PEAK_HOLD = os.environ.get("WEDDING_V3_PEAK_HOLD", "0").strip().lower() in (
     "true",
     "yes",
 )
+# V12: reward music-section ↔ story-role alignment in music_sync.
+MUSIC_SECTION_ROLES = os.environ.get("WEDDING_V3_MUSIC_SECTION_ROLES", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
+_SECTION_ROLE_OK = {
+    "intro": {"detail", "wide", "portrait"},
+    "build": {"portrait", "detail", "couple"},
+    "verse": {"couple", "portrait", "detail", "motion"},
+    "chorus": {"couple", "motion", "portrait"},
+    "peak": {"couple", "portrait", "motion"},
+    "outro": {"wide", "couple", "detail"},
+}
 
 
 @dataclass
@@ -126,6 +141,31 @@ def critique_plan(picks: list[RankedPick], profile: str = "") -> Critique:
             music *= 0.85
         else:
             music = min(1.0, music + 0.08)
+
+    # V12: diagnose section↔role grammar (no free score inflate — ranking must earn it).
+    if MUSIC_SECTION_ROLES:
+        hits = 0
+        for p in picks:
+            ok = _SECTION_ROLE_OK.get(p.beat.section) or {p.beat.role}
+            if p.beat.role in ok:
+                hits += 1
+        align = hits / n
+        peak_human = [
+            p
+            for p in peak_slots
+            if p.shot.shot_type in ("couple", "portrait")
+            or p.beat.role in ("couple", "portrait")
+        ]
+        peak_ratio = (len(peak_human) / len(peak_slots)) if peak_slots else 0.0
+        if peak_slots and peak_ratio < 0.55:
+            problems.append("peak section leans on non-intimate roles")
+            recs.append("prefer couple/portrait on musical climax")
+        if align < 0.60:
+            problems.append("music sections poorly matched to story roles")
+            recs.append("tighten section→role arc mapping")
+        # Tiny earned bump only when climax is mostly intimate + grammar is solid.
+        if align >= 0.85 and peak_ratio >= 0.70:
+            music = min(1.0, music + 0.03)
 
     # pacing: duration variance
     durs = [p.beat.dur for p in picks]

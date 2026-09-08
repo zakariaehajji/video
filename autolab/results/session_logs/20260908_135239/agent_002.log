@@ -1,0 +1,34 @@
+EXPERIMENT:
+V12_music_section_roles — tighter music-section→story-role grammar (energy-aware arc + ranking bias for couple/portrait on climax). Hypothesis: lift music_sync without losing V10 continuity.
+
+FILES_CHANGED:
+- `wedding_v3/story.py` (`MUSIC_SECTION_ROLES`, `ARC_BY_SECTION_TIGHT`, `_select_section_role`)
+- `wedding_v3/ranking.py` (section-role fit weights/bonuses)
+- `wedding_v3/critic.py` (grammar diagnostics; tiny earned bump only)
+- `autolab/run_v12_music_roles.py` (new runner)
+- `Output/autolab/V12/EVAL.json`, lab state / experiment log / pending jobs / BLOCKER
+
+COMMANDS_RUN:
+- Plan/rank smoke test with V12 gates
+- `.venv\Scripts\python.exe autolab\run_v12_music_roles.py`
+
+RENDER:
+Yes — real mp4s (~19MB each):
+- `Output/autolab/V12/autolab_music_section_roles/candidate_01_emotional_A_emotion.mp4`
+- `Output/autolab/V12/autolab_music_section_roles/candidate_02_emotional_D_balanced.mp4`
+(BEST_v10 / BEST_v3 untouched; no BEST_v12)
+
+EVALUATION:
+Peak intimate roles 14/16 (motion 5→2). music_sync 8.35→8.94, continuity 8.57→9.24. Losses: variety 10.0→8.18, emotion 7.94→7.78, visual 6.32→6.15. Overall below V10.
+
+SCORE:
+8.51 (delta vs V10: −0.18)
+
+DECISION:
+REJECT — keep `V10_continuity_color` at 8.69
+
+REMAINING_WEAKNESS:
+visual_quality still ~6.3; variety collapsed when climax roles tightened; emotion still limited by proxy cues; pacing still 7.5.
+
+NEXT_EXPERIMENT:
+V13_visual_quality_soft — soft cinematic-quality preference without V9 consecutive-source failure.

@@ -284,6 +284,57 @@ def build_pool(video_dir: Path, force: bool = False) -> list[Shot]:
     return all_shots
 
 
+def iter_library_videos(root: Path | None = None) -> list[Path]:
+    """Collect mp4s from wedding_web + recursive resource/video/library/**."""
+    root = Path(root) if root else Path(__file__).resolve().parents[1]
+    vids: list[Path] = []
+    web = root / "resource" / "video" / "wedding_web"
+    lib = root / "resource" / "video" / "library"
+    if web.exists():
+        vids.extend(sorted(web.glob("*.mp4")))
+    if lib.exists():
+        vids.extend(sorted(lib.rglob("*.mp4")))
+    # whatsapp / other one-off folders under resource/video (non-recursive siblings)
+    video_root = root / "resource" / "video"
+    if video_root.exists():
+        for p in sorted(video_root.glob("*/*.mp4")):
+            if "library" in p.parts or "wedding_web" in p.parts:
+                continue
+            vids.append(p)
+    # dedupe by resolved path
+    seen: set[str] = set()
+    out: list[Path] = []
+    for v in vids:
+        key = str(v.resolve()).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(v)
+    return out
+
+
+def build_library_pool(force: bool = False, root: Path | None = None) -> list[Shot]:
+    """Analyze all legal library + wedding_web clips into the shared shot pool."""
+    root = Path(root) if root else Path(__file__).resolve().parents[1]
+    videos = iter_library_videos(root)
+    all_shots: list[Shot] = []
+    print(f"Library scan: {len(videos)} videos", flush=True)
+    for i, vp in enumerate(videos, 1):
+        print(f"[{i}/{len(videos)}] analyzing {vp.name}", flush=True)
+        shots = analyze_video_shots(vp, force=force)
+        print(
+            f"  -> {len(shots)} shots, peak emo="
+            f"{max((s.emotion_score for s in shots), default=0):.3f}",
+            flush=True,
+        )
+        all_shots.extend(shots)
+    pool_path = CACHE_DIR / "pool.json"
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    pool_path.write_text(json.dumps([s.to_dict() for s in all_shots], indent=2), encoding="utf-8")
+    print(f"Shot pool: {len(all_shots)} -> {pool_path}", flush=True)
+    return all_shots
+
+
 def load_pool(path: Path | None = None) -> list[Shot]:
     path = path or (CACHE_DIR / "pool.json")
     data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -291,5 +342,4 @@ def load_pool(path: Path | None = None) -> list[Shot]:
 
 
 if __name__ == "__main__":
-    root = Path(__file__).resolve().parents[1]
-    build_pool(root / "resource" / "video" / "wedding_web")
+    build_library_pool(force=False)

@@ -1,0 +1,22 @@
+{
+  "id": "ceremony_story",
+  "title": "Ceremony story arc",
+  "target_duration": 40,
+  "description": "Narrative: detail → aisle energy → vows emotion → kiss/hug → resolution.",
+  "min_shot_dur": 2.0,
+  "max_shot_dur": 5.0,
+  "peak_min_dur": 3.0,
+  "prefer_xfade_sections": ["intro", "outro"],
+  "hard_cut_on_peak": true,
+  "role_arc": {
+    "intro": ["detail", "wide", "portrait"],
+    "build": ["wide", "portrait", "detail"],
+    "verse": ["portrait", "couple", "detail"],
+    "chorus": ["couple", "portrait", "wide"],
+    "peak": ["couple", "portrait", "motion"],
+    "outro": ["wide", "couple", "detail"]
+  },
+  "ranking_profile": "B_story_music",
+  "pace_hold": true,
+  "peak_hold": true
+}

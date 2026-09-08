@@ -1,0 +1,22 @@
+{
+  "id": "reception_energy",
+  "title": "Reception energy",
+  "target_duration": 38,
+  "description": "Dance and celebration with controlled cut rate.",
+  "min_shot_dur": 1.4,
+  "max_shot_dur": 3.2,
+  "peak_min_dur": 2.0,
+  "prefer_xfade_sections": ["intro", "outro"],
+  "hard_cut_on_peak": true,
+  "role_arc": {
+    "intro": ["wide", "detail", "portrait"],
+    "build": ["motion", "couple", "portrait"],
+    "verse": ["motion", "couple", "wide"],
+    "chorus": ["motion", "couple", "portrait"],
+    "peak": ["motion", "couple"],
+    "outro": ["wide", "couple", "detail"]
+  },
+  "ranking_profile": "C_peak_payoff",
+  "pace_hold": false,
+  "peak_hold": true
+}

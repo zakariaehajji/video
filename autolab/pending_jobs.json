@@ -86,5 +86,16 @@
     "returncode": 1,
     "score": 8.69,
     "verdict": "REJECT"
+  },
+  {
+    "id": "V12_music_section_roles",
+    "script": "autolab/run_v12_music_roles.py",
+    "status": "done",
+    "priority": 9,
+    "hypothesis": "Tighter music-section\u2192story-role mapping lifts music_sync",
+    "depends_on": "V10_continuity_color",
+    "returncode": 1,
+    "score": 8.51,
+    "verdict": "REJECT"
   }
 ]

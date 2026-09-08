@@ -27,6 +27,22 @@ PEAK_HOLD = os.environ.get("WEDDING_V3_PEAK_HOLD", "0").strip().lower() in (
     "true",
     "yes",
 )
+# V12: prefer shots that match music-section story grammar.
+MUSIC_SECTION_ROLES = os.environ.get("WEDDING_V3_MUSIC_SECTION_ROLES", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
+# How well a planned role / shot type fits each music section (wedding film grammar).
+SECTION_ROLE_FIT: dict[str, dict[str, float]] = {
+    "intro": {"detail": 1.0, "wide": 0.95, "portrait": 0.72, "couple": 0.42, "motion": 0.28},
+    "build": {"portrait": 1.0, "detail": 0.90, "couple": 0.85, "wide": 0.50, "motion": 0.40},
+    "verse": {"couple": 1.0, "portrait": 0.95, "detail": 0.70, "motion": 0.55, "wide": 0.50},
+    "chorus": {"couple": 1.0, "motion": 0.95, "portrait": 0.80, "wide": 0.50, "detail": 0.35},
+    "peak": {"couple": 1.0, "portrait": 0.95, "motion": 0.52, "wide": 0.38, "detail": 0.28},
+    "outro": {"wide": 1.0, "couple": 0.95, "detail": 0.85, "portrait": 0.58, "motion": 0.32},
+}
 
 WEIGHT_PROFILES = {
     "A_emotion": {
@@ -81,11 +97,22 @@ def _effective_weights(profile: str) -> dict[str, float]:
         w["continuity"] = min(0.16, w["continuity"] + 0.05)
         w["variety"] = max(0.05, w["variety"] - 0.01)
         w["visual"] = max(0.12, w["visual"] - 0.02)
-    if VISUAL_BOOST or COLOR_CONTINUITY:
+    if MUSIC_SECTION_ROLES:
+        # Slightly more story+music mass so section grammar can win close races.
+        w["story"] = min(0.28, w["story"] + 0.04)
+        w["music"] = min(0.24, w["music"] + 0.04)
+        w["variety"] = max(0.05, w["variety"] - 0.02)
+        w["visual"] = max(0.12, w["visual"] - 0.02)
+    if VISUAL_BOOST or COLOR_CONTINUITY or MUSIC_SECTION_ROLES:
         total = sum(w.values())
         if total > 0:
             w = {k: v / total for k, v in w.items()}
     return w
+
+
+def _section_role_fit(section: str, role: str) -> float:
+    table = SECTION_ROLE_FIT.get(section) or {}
+    return float(table.get(role, 0.55))
 
 
 @dataclass
@@ -222,6 +249,37 @@ def score_shot(
         emotion = min(1.0, emotion + 0.12)
         peak = min(1.0, peak + 0.10)
         reasons.append("tear-reaction")
+
+    # V12: music-section ↔ story-role / shot-type grammar (selection bias, modest deltas).
+    if MUSIC_SECTION_ROLES:
+        role_fit = _section_role_fit(beat.section, beat.role)
+        shot_fit = _section_role_fit(beat.section, shot.shot_type)
+        combined = 0.55 * role_fit + 0.45 * shot_fit
+        story = min(1.0, 0.62 * story + 0.38 * combined)
+        if combined >= 0.90 and (
+            beat.role in shot.story_roles or shot.shot_type == beat.role
+        ):
+            music = min(1.0, music + 0.10)
+            reasons.append("section-role-fit")
+        elif combined <= 0.40:
+            music *= 0.90
+            reasons.append("section-role-mismatch")
+        # Climax: couple/portrait with real emotion beats weak motion fillers.
+        if beat.section == "peak" or beat.is_peak:
+            if shot.shot_type in ("couple", "portrait") and emotion >= 0.42:
+                music = min(1.0, music + 0.10)
+                peak = min(1.0, peak + 0.06)
+                reasons.append("peak-emotion-role")
+            if beat.role == "motion" and emotion < 0.45:
+                music *= 0.86
+                reasons.append("weak-peak-motion")
+        # Soft establish on intro/outro bookends.
+        if beat.section == "intro" and shot.shot_type in ("detail", "wide"):
+            music = min(1.0, music + 0.06)
+            reasons.append("intro-establish")
+        if beat.section == "outro" and shot.shot_type in ("wide", "couple", "detail"):
+            music = min(1.0, music + 0.05)
+            reasons.append("outro-resolve")
 
     w = weights
     total = (

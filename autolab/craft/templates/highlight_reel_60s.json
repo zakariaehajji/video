@@ -1,0 +1,22 @@
+{
+  "id": "highlight_reel_60s",
+  "title": "60s highlight reel",
+  "target_duration": 58,
+  "description": "Compressed best-of with phrase-level pacing.",
+  "min_shot_dur": 1.6,
+  "max_shot_dur": 3.8,
+  "peak_min_dur": 2.4,
+  "prefer_xfade_sections": ["intro", "outro"],
+  "hard_cut_on_peak": true,
+  "role_arc": {
+    "intro": ["detail", "portrait"],
+    "build": ["portrait", "couple", "detail"],
+    "verse": ["couple", "motion", "portrait"],
+    "chorus": ["motion", "couple", "portrait"],
+    "peak": ["couple", "motion", "portrait"],
+    "outro": ["wide", "couple"]
+  },
+  "ranking_profile": "D_balanced",
+  "pace_hold": true,
+  "peak_hold": true
+}

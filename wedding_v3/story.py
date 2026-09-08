@@ -18,6 +18,12 @@ PEAK_HOLD = os.environ.get("WEDDING_V3_PEAK_HOLD", "0").strip().lower() in (
     "true",
     "yes",
 )
+# V12: tighter music-section → story-role grammar (energy-aware role picks).
+MUSIC_SECTION_ROLES = os.environ.get("WEDDING_V3_MUSIC_SECTION_ROLES", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 
 ARC_BY_SECTION = {
@@ -28,6 +34,64 @@ ARC_BY_SECTION = {
     "peak": ["couple", "portrait", "motion"],
     "outro": ["wide", "couple", "detail"],
 }
+
+# Wedding-film grammar: establish → intimacy → celebration → climax → resolve.
+# Peak favors couple/portrait; motion is a sparse accent, not equal rotation.
+ARC_BY_SECTION_TIGHT = {
+    "intro": ["detail", "wide", "detail", "wide", "portrait"],
+    "build": ["portrait", "detail", "portrait", "couple"],
+    "verse": ["couple", "portrait", "detail", "couple"],
+    "chorus": ["couple", "motion", "couple", "portrait"],
+    "peak": ["couple", "portrait", "couple", "portrait", "couple", "motion"],
+    "outro": ["wide", "couple", "detail", "wide"],
+}
+
+
+def _select_section_role(
+    prefs: list[str],
+    idx: int,
+    energy: float,
+    label: str,
+) -> str:
+    """Pick beat role; V12 biases by section grammar + local energy."""
+    if not prefs:
+        return "couple"
+    if not MUSIC_SECTION_ROLES:
+        return prefs[idx % len(prefs)]
+
+    primary = {
+        "intro": ["detail", "wide"],
+        "build": ["portrait", "detail"],
+        "verse": ["couple", "portrait"],
+        "chorus": ["couple", "motion"],
+        "peak": ["couple", "portrait"],
+        "outro": ["wide", "couple"],
+    }.get(label, prefs)
+    primary = [r for r in primary if r in prefs] or list(prefs)
+
+    if energy >= 0.68:
+        ordered = [r for r in ("motion", "couple", "portrait", "wide", "detail") if r in prefs]
+    elif energy <= 0.42:
+        ordered = [r for r in ("detail", "wide", "portrait", "couple", "motion") if r in prefs]
+    else:
+        ordered = [r for r in prefs if r in prefs]
+
+    if not ordered:
+        ordered = list(prefs)
+
+    # Early beats in a section stick to primary wedding grammar.
+    if idx < 2:
+        return primary[idx % len(primary)]
+    # Peak: keep motion rare (every 6th beat after openers).
+    if label == "peak":
+        if "motion" in prefs and idx >= 2 and idx % 6 == 5:
+            return "motion"
+        peak_cycle = [r for r in ("couple", "portrait") if r in prefs] or primary
+        return peak_cycle[idx % len(peak_cycle)]
+    # Otherwise cycle prefs (tight arc order) with energy-ordered fallback every 4th.
+    if idx % 4 == 3 and ordered:
+        return ordered[idx % len(ordered)]
+    return prefs[idx % len(prefs)]
 
 
 @dataclass
@@ -59,8 +123,23 @@ def plan_story(
     available_roles: set[str],
     target_duration: float = 38.0,
     style: str = "classic",
+    craft: dict[str, Any] | None = None,
 ) -> list[PlannedBeat]:
-    """Build adaptive beat list. Skips roles that have no footage."""
+    """Build adaptive beat list. Skips roles that have no footage.
+
+    Optional ``craft`` (from autolab/craft/templates) overrides role arc + pacing floors.
+    """
+    global PACE_HOLD_FLOOR, PEAK_HOLD
+    craft = craft or {}
+    restore_pace = PACE_HOLD_FLOOR
+    restore_peak = PEAK_HOLD
+    if craft.get("pace_hold"):
+        PACE_HOLD_FLOOR = True
+    if craft.get("peak_hold"):
+        PEAK_HOLD = True
+    if craft.get("target_duration"):
+        target_duration = float(craft["target_duration"])
+
     data = analysis.to_dict()
     duration = min(float(data["duration"]), target_duration)
     sections = [s for s in data.get("sections", []) if s["start"] < duration]
@@ -80,154 +159,178 @@ def plan_story(
             peak_times.append(float(p))
     peaks = set(round(p, 1) for p in peak_times)
 
-    for si, sec in enumerate(sections):
-        s0, s1 = float(sec["start"]), float(min(sec["end"], duration))
-        if s1 - s0 < 0.6:
-            continue
-        label = sec.get("label", "verse")
-        prefs = [r for r in ARC_BY_SECTION.get(label, ["couple"]) if r in available_roles]
-        if not prefs:
-            prefs = list(available_roles) or ["couple"]
+    craft_arc = craft.get("role_arc") or {}
+    craft_min = float(craft.get("min_shot_dur") or 0)
+    craft_max = float(craft.get("max_shot_dur") or 99)
+    craft_peak_min = float(craft.get("peak_min_dur") or 0)
+    craft_xfade = set(craft.get("prefer_xfade_sections") or [])
+    craft_hard_peak = bool(craft.get("hard_cut_on_peak", True))
 
-        energy = float(sec.get("mean_energy", _section_energy(analysis, s0, s1)))
-        if style == "emotional":
-            # Longer holds: V3 emotional pacing felt busy / stock-footage-like.
-            if PACE_HOLD_FLOOR:
-                # V5: raise bases so intro isn't a spray of ~0.7s cuts.
-                # Target mean hold ~1.5–2.0s (avoid critic "too slow" >2.35).
-                base = 2.9 if label in ("intro", "outro") else 2.15
-                min_dur = 1.4 if label in ("intro", "outro", "build") else 1.2
+    try:
+        for si, sec in enumerate(sections):
+            s0, s1 = float(sec["start"]), float(min(sec["end"], duration))
+            if s1 - s0 < 0.6:
+                continue
+            label = sec.get("label", "verse")
+            if craft_arc and label in craft_arc:
+                arc_prefs = craft_arc[label]
             else:
-                base = 2.85 if label in ("intro", "outro") else 2.05
-                min_dur = 0.7
-        elif style == "energetic":
-            base = 1.9 if label in ("intro", "outro") else 1.25
-            min_dur = 0.85 if PACE_HOLD_FLOOR else 0.7
-        else:
-            base = 2.6 if label in ("intro", "outro") else 1.9 if label == "build" else 1.55
-            min_dur = (1.2 if label in ("intro", "outro") else 1.05) if PACE_HOLD_FLOOR else 0.7
+                arc = ARC_BY_SECTION_TIGHT if MUSIC_SECTION_ROLES else ARC_BY_SECTION
+                arc_prefs = arc.get(label, ["couple"])
+            prefs = [r for r in arc_prefs if r in available_roles]
+            if not prefs:
+                prefs = list(available_roles) or ["couple"]
 
-        if energy > 0.7:
-            base *= 0.9
-        if label == "peak":
-            if PEAK_HOLD and PACE_HOLD_FLOOR:
-                # V11: keep V10-like peak cut density (avoid flattening duration variance).
-                # Climax breathes come from ranking.polish_peak_emotion_holds, not fewer cuts.
-                if style == "emotional":
-                    base = min(base, 1.62)
-                    min_dur = min(min_dur, 1.05)
+            energy = float(sec.get("mean_energy", _section_energy(analysis, s0, s1)))
+            if style == "emotional":
+                if PACE_HOLD_FLOOR:
+                    base = 2.9 if label in ("intro", "outro") else 2.15
+                    min_dur = 1.4 if label in ("intro", "outro", "build") else 1.2
                 else:
-                    base = min(base, 1.40)
-                    min_dur = min(min_dur, 0.90)
-            elif PACE_HOLD_FLOOR:
-                base = min(base, 1.55 if style == "emotional" else 1.35)
-                min_dur = min(min_dur, 1.0 if style == "emotional" else 0.85)
+                    base = 2.85 if label in ("intro", "outro") else 2.05
+                    min_dur = 0.7
+            elif style == "energetic":
+                base = 1.9 if label in ("intro", "outro") else 1.25
+                min_dur = 0.85 if PACE_HOLD_FLOOR else 0.7
             else:
-                base = min(base, 1.45 if style == "emotional" else 1.35)
+                base = 2.6 if label in ("intro", "outro") else 1.9 if label == "build" else 1.55
+                min_dur = (1.2 if label in ("intro", "outro") else 1.05) if PACE_HOLD_FLOOR else 0.7
 
-        t = s0
-        idx = 0
-        while t < s1 - 0.45:
-            role = prefs[idx % len(prefs)]
-            dur = base
-            if PACE_HOLD_FLOOR:
-                # Snap only when gap is long enough to hold (no micro-cut sprays).
-                future_beats = [b for b in beat_times if b > t + min_dur]
-                if future_beats:
-                    gap = future_beats[0] - t
-                    if min_dur <= gap <= max(2.8, base + 0.4):
-                        dur = gap
-                dur = max(dur, min_dur)
-            else:
-                future_beats = [b for b in beat_times if b > t + 0.5]
-                if future_beats:
-                    gap = future_beats[0] - t
-                    if 0.7 <= gap <= 2.8:
-                        dur = gap
-            end = min(s1, t + dur)
-            if end - t < (min(0.55, min_dur * 0.55) if PACE_HOLD_FLOOR else 0.55):
-                break
-            if PACE_HOLD_FLOOR:
-                rem = s1 - end
-                if 0 < rem < min_dur * 0.75:
-                    end = s1
+            if craft_min > 0:
+                min_dur = max(min_dur, craft_min)
+                base = max(base, craft_min)
 
-            near_peak = any(abs((t + end) / 2 - p) < 1.2 for p in peaks) or label == "peak"
-            # Intro/outro stay soft for dissolves; don't mark them peak from nearby music peaks.
-            is_peak = label == "peak" or (
-                near_peak and label in ("chorus", "verse", "build")
-            )
-            want_slow = is_peak and role in ("couple", "portrait") and energy > 0.45
-            want_xfade = (
-                label in ("intro", "outro", "build")
-                and energy < 0.55
-                and style != "energetic"
-                and not is_peak
-            )
+            if energy > 0.7:
+                base *= 0.9
+            if label == "peak":
+                if PEAK_HOLD and PACE_HOLD_FLOOR:
+                    if style == "emotional":
+                        base = min(base, 1.62)
+                        min_dur = min(min_dur, 1.05)
+                    else:
+                        base = min(base, 1.40)
+                        min_dur = min(min_dur, 0.90)
+                elif PACE_HOLD_FLOOR:
+                    base = min(base, 1.55 if style == "emotional" else 1.35)
+                    min_dur = min(min_dur, 1.0 if style == "emotional" else 0.85)
+                else:
+                    base = min(base, 1.45 if style == "emotional" else 1.35)
+                if craft_peak_min > 0:
+                    base = max(base, craft_peak_min)
+                    min_dur = max(min_dur, craft_peak_min)
 
-            beats.append(
-                PlannedBeat(
-                    t0=round(t, 3),
-                    t1=round(end, 3),
-                    dur=round(end - t, 3),
-                    section=label,
-                    role=role,
-                    energy=round(energy, 4),
-                    want_slowmo=want_slow,
-                    want_xfade=want_xfade,
-                    is_peak=is_peak,
+            base = min(base, craft_max)
+            min_dur = min(min_dur, craft_max)
+
+            t = s0
+            idx = 0
+            while t < s1 - 0.45:
+                role = _select_section_role(prefs, idx, energy, label)
+                dur = base
+                if PACE_HOLD_FLOOR:
+                    future_beats = [b for b in beat_times if b > t + min_dur]
+                    if future_beats:
+                        gap = future_beats[0] - t
+                        if min_dur <= gap <= max(2.8, base + 0.4):
+                            dur = gap
+                    dur = max(dur, min_dur)
+                else:
+                    future_beats = [b for b in beat_times if b > t + 0.5]
+                    if future_beats:
+                        gap = future_beats[0] - t
+                        if 0.7 <= gap <= 2.8:
+                            dur = gap
+                dur = min(dur, craft_max)
+                end = min(s1, t + dur)
+                if end - t < (min(0.55, min_dur * 0.55) if PACE_HOLD_FLOOR else 0.55):
+                    break
+                if PACE_HOLD_FLOOR:
+                    rem = s1 - end
+                    if 0 < rem < min_dur * 0.75:
+                        end = s1
+
+                near_peak = any(abs((t + end) / 2 - p) < 1.2 for p in peaks) or label == "peak"
+                is_peak = label == "peak" or (
+                    near_peak and label in ("chorus", "verse", "build")
                 )
-            )
-            t = end
-            idx += 1
+                want_slow = is_peak and role in ("couple", "portrait") and energy > 0.45
+                soft = craft_xfade or {"intro", "outro", "build"}
+                want_xfade = (
+                    label in soft
+                    and energy < 0.55
+                    and style != "energetic"
+                    and not (is_peak and craft_hard_peak)
+                )
 
-    # V5: fewer/longer beats make raw peak-slowmo density too high for the critic.
-    # Cap to the polish sweet-spot (1..n//5), couple-only, preserving earliest peaks.
-    if PACE_HOLD_FLOOR and beats:
-        cap = max(2, len(beats) // 5)
-        kept = 0
-        capped: list[PlannedBeat] = []
-        for b in beats:
-            slow = b.want_slowmo
-            if slow:
-                if b.role != "couple" or kept >= cap:
-                    slow = False
-                else:
-                    kept += 1
-            if slow == b.want_slowmo:
-                capped.append(b)
-            else:
-                capped.append(
+                beats.append(
                     PlannedBeat(
-                        t0=b.t0,
-                        t1=b.t1,
-                        dur=b.dur,
-                        section=b.section,
-                        role=b.role,
-                        energy=b.energy,
-                        want_slowmo=slow,
-                        want_xfade=b.want_xfade,
-                        is_peak=b.is_peak,
+                        t0=round(t, 3),
+                        t1=round(end, 3),
+                        dur=round(end - t, 3),
+                        section=label,
+                        role=role,
+                        energy=round(energy, 4),
+                        want_slowmo=want_slow,
+                        want_xfade=want_xfade,
+                        is_peak=is_peak,
                     )
                 )
-        beats = capped
+                t = end
+                idx += 1
 
-    if beats and beats[-1].t1 < duration - 0.4:
-        role = "wide" if "wide" in available_roles else ("couple" if "couple" in available_roles else prefs[0])
-        beats.append(
-            PlannedBeat(
-                t0=beats[-1].t1,
-                t1=duration,
-                dur=round(duration - beats[-1].t1, 3),
-                section="outro",
-                role=role,
-                energy=0.35,
-                want_slowmo=False,
-                want_xfade=True,
-                is_peak=False,
+        # Cap peak-slowmo density when pace-hold is on.
+        if PACE_HOLD_FLOOR and beats:
+            cap = max(2, len(beats) // 5)
+            kept = 0
+            capped: list[PlannedBeat] = []
+            for b in beats:
+                slow = b.want_slowmo
+                if slow:
+                    if b.role != "couple" or kept >= cap:
+                        slow = False
+                    else:
+                        kept += 1
+                if slow == b.want_slowmo:
+                    capped.append(b)
+                else:
+                    capped.append(
+                        PlannedBeat(
+                            t0=b.t0,
+                            t1=b.t1,
+                            dur=b.dur,
+                            section=b.section,
+                            role=b.role,
+                            energy=b.energy,
+                            want_slowmo=slow,
+                            want_xfade=b.want_xfade,
+                            is_peak=b.is_peak,
+                        )
+                    )
+            beats = capped
+
+        if beats and beats[-1].t1 < duration - 0.4:
+            role = (
+                "wide"
+                if "wide" in available_roles
+                else ("couple" if "couple" in available_roles else next(iter(available_roles), "couple"))
             )
-        )
-    return beats
+            beats.append(
+                PlannedBeat(
+                    t0=beats[-1].t1,
+                    t1=duration,
+                    dur=round(duration - beats[-1].t1, 3),
+                    section="outro",
+                    role=role,
+                    energy=0.35,
+                    want_slowmo=False,
+                    want_xfade=True,
+                    is_peak=False,
+                )
+            )
+        return beats
+    finally:
+        PACE_HOLD_FLOOR = restore_pace
+        PEAK_HOLD = restore_peak
 
 
 def available_roles_from_shots(shots: list[Shot]) -> set[str]:
