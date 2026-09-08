@@ -245,7 +245,7 @@ def analyze_video_shots(video_path: Path, force: bool = False) -> list[Shot]:
 
         shot = Shot(
             id=f"{video_path.stem}_{i:03d}",
-            video=str(video_path).replace("\\", "/"),
+            video=str(video_path.resolve()).replace("\\", "/"),
             start=round(start, 3),
             end=round(end, 3),
             duration=round(end - start, 3),
@@ -349,7 +349,16 @@ def build_library_pool(force: bool = False, root: Path | None = None) -> list[Sh
 def load_pool(path: Path | None = None) -> list[Shot]:
     path = path or (CACHE_DIR / "pool.json")
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    return [Shot.from_dict(x) for x in data]
+    root = Path(__file__).resolve().parents[1]
+    shots = [Shot.from_dict(x) for x in data]
+    for s in shots:
+        p = Path(s.video)
+        if not p.is_absolute():
+            s.video = str((root / p).resolve())
+        elif not p.exists():
+            # tolerate moved workspace drive letter casing
+            s.video = str(p)
+    return shots
 
 
 if __name__ == "__main__":

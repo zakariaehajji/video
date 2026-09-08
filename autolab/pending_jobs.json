@@ -152,5 +152,16 @@
     "returncode": 1,
     "score": 8.7,
     "verdict": "REJECT"
+  },
+  {
+    "id": "V18_visual_quality_soft_v2",
+    "script": "autolab/run_v18_visual_soft_v2.py",
+    "status": "done",
+    "priority": 15,
+    "hypothesis": "Mild CQ preference with consecutive-source guard lifts visual_quality ~6.3",
+    "depends_on": "V15_emotion_model_refresh",
+    "returncode": 1,
+    "score": 8.61,
+    "verdict": "REJECT"
   }
 ]

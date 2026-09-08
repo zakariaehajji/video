@@ -61,9 +61,23 @@ def main() -> None:
     board = summary.get("leaderboard") or []
     best = board[0] if board else None
     best_score = float(best["overall"]) if best else 0.0
-    decision = "KEEP" if best_score >= BASELINE_BEST else "REJECT"
-    if best_score >= BASELINE_BEST - 0.15 and best_score < BASELINE_BEST:
-        decision = "HOLD_NEAR"  # interesting but not promote over V4
+
+    # Honest comparable-length gate (≤42s). Long reels inflate critic variety/overall.
+    dur_by_id = {t.get("id"): float(t.get("target_duration") or 38) for t in templates}
+    comparable = []
+    for row in board:
+        dur = dur_by_id.get(row.get("craft_id"), 38.0)
+        if dur <= 42:
+            comparable.append({**row, "target_duration": dur})
+    comparable.sort(key=lambda r: r["overall"], reverse=True)
+    best_c = comparable[0] if comparable else None
+    best_c_score = float(best_c["overall"]) if best_c else 0.0
+    if best_c_score >= BASELINE_BEST + 0.25:
+        decision = "KEEP_CANDIDATE"
+    elif best_c_score >= BASELINE_BEST:
+        decision = "HOLD_NEAR"
+    else:
+        decision = "REJECT"
 
     result = {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -71,21 +85,28 @@ def main() -> None:
         "n_shots": len(shots),
         "n_templates": len(templates),
         "baseline_best": BASELINE_BEST,
-        "winner": best,
+        "winner_raw": best,
+        "winner_comparable_le_42s": best_c,
         "decision": decision,
         "leaderboard": board[:15],
+        "comparable_top5": comparable[:5],
         "rendered": summary.get("rendered"),
         "run_dir": str(OUT / tag),
         "notes": (
-            "KEEP only if critic overall beats overnight V4 emotional 8.36. "
-            "Human-feel still required before promoting as editor default."
+            "Decision uses ≤42s craft templates vs V4 emotional 8.36. "
+            "Long 60/90s reels are recorded but not used for KEEP. "
+            "Human-feel review required before promoting as editor default."
         ),
     }
     OUT.mkdir(parents=True, exist_ok=True)
     out_path = OUT / f"{tag}_decision.json"
     out_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(json.dumps(result, indent=2), flush=True)
-    print(f"DECISION={decision} best={best_score:.2f} vs baseline={BASELINE_BEST}", flush=True)
+    print(
+        f"DECISION={decision} comparable={best_c_score:.2f} "
+        f"raw_best={best_score:.2f} vs baseline={BASELINE_BEST}",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

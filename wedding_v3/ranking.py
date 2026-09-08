@@ -21,6 +21,12 @@ VISUAL_SOFT = os.environ.get("WEDDING_V3_VISUAL_SOFT", "0").strip().lower() in (
     "true",
     "yes",
 )
+# V18: milder than V13; peak-emotion safe; hard consecutive-source skip.
+VISUAL_SOFT_V2 = os.environ.get("WEDDING_V3_VISUAL_SOFT_V2", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 # V10: prefer palette-similar cuts across sources (reduces stock-footage jumps).
 COLOR_CONTINUITY = os.environ.get("WEDDING_V3_COLOR_CONTINUITY", "0").strip().lower() in (
     "1",
@@ -123,7 +129,11 @@ def _effective_weights(profile: str) -> dict[str, float]:
         w["visual"] = min(0.24, w["visual"] + 0.07)
         w["variety"] = max(0.06, w["variety"] - 0.01)
         w["continuity"] = max(0.07, w["continuity"] - 0.01)
-    if VISUAL_SOFT and not VISUAL_BOOST:
+    if VISUAL_SOFT_V2 and not VISUAL_BOOST and not VISUAL_SOFT:
+        # Milder than V13: tiny CQ nudge; protect emotion/variety budgets.
+        w["visual"] = min(0.18, w["visual"] + 0.02)
+        w["variety"] = max(0.07, w["variety"])
+    elif VISUAL_SOFT and not VISUAL_BOOST:
         # Milder than V9: nudge CQ without starving variety/continuity (V10 strengths).
         w["visual"] = min(0.20, w["visual"] + 0.03)
         w["variety"] = max(0.06, w["variety"])  # do not cut variety budget
@@ -138,7 +148,13 @@ def _effective_weights(profile: str) -> dict[str, float]:
         w["music"] = min(0.24, w["music"] + 0.04)
         w["variety"] = max(0.05, w["variety"] - 0.02)
         w["visual"] = max(0.12, w["visual"] - 0.02)
-    if VISUAL_BOOST or VISUAL_SOFT or COLOR_CONTINUITY or MUSIC_SECTION_ROLES:
+    if (
+        VISUAL_BOOST
+        or VISUAL_SOFT
+        or VISUAL_SOFT_V2
+        or COLOR_CONTINUITY
+        or MUSIC_SECTION_ROLES
+    ):
         total = sum(w.values())
         if total > 0:
             w = {k: v / total for k, v in w.items()}
@@ -232,6 +248,13 @@ def score_shot(
             0.35 * shot.technical_quality
             + 0.45 * shot.cinematic_quality
             + 0.20 * sharpness
+        )
+    elif VISUAL_SOFT_V2:
+        # Between baseline and V13: mild CQ tilt without V9 sharpness dominance.
+        visual = (
+            0.55 * shot.technical_quality
+            + 0.32 * shot.cinematic_quality
+            + 0.13 * sharpness
         )
     elif VISUAL_SOFT:
         # Soft blend: slightly more CQ/sharpness than baseline, far milder than V9.
@@ -475,6 +498,41 @@ def score_shot(
         if recent_videos and shot.video in recent_videos[-1:]:
             total *= 0.88
             reasons.append("soft-consec-guard")
+    # V18: peak-safe soft CQ — lift bookends/verse visual; do not demote peak emotion.
+    elif VISUAL_SOFT_V2:
+        cq = float(shot.cinematic_quality or 0.0)
+        tq = float(shot.technical_quality or 0.0)
+        peak_protect = bool(beat.is_peak) and (
+            float(shot.emotion_score or 0.0) >= 0.42
+            or float(getattr(shot, "kiss", 0.0) or 0.0) >= 0.38
+            or float(getattr(shot, "hug", 0.0) or 0.0) >= 0.48
+            or float(getattr(shot, "tears", 0.0) or 0.0) >= 0.45
+        )
+        if peak_protect:
+            # Tiny CQ tie-break only — never punish strong emotional peaks.
+            if cq >= 0.68:
+                total *= 1.015
+                reasons.append("softv2-peak-cq")
+        else:
+            if cq < 0.46:
+                total *= 0.96
+                reasons.append("softv2-low-cq")
+            elif cq >= 0.68:
+                total *= 1.028
+                reasons.append("softv2-high-cq")
+            if tq >= 0.82 and sharpness >= 0.90:
+                total *= 1.015
+                reasons.append("softv2-sharp-tech")
+            if beat.section in ("intro", "outro", "verse") and cq < 0.52:
+                total *= 0.94
+                reasons.append("softv2-bookend-cq")
+            elif beat.section in ("intro", "outro") and cq >= 0.66:
+                total *= 1.02
+                reasons.append("softv2-bookend-boost")
+        # Harder consecutive-source penalty than V13 soft (V9 failure mode).
+        if recent_videos and shot.video in recent_videos[-1:]:
+            total *= 0.78
+            reasons.append("softv2-consec-guard")
     # V10: mild warmth preference (wedding film look) without hard filtering.
     if COLOR_CONTINUITY:
         warmth = float(getattr(shot, "color_b", 0.0) or 0.0)  # +b = yellow/warm
@@ -534,6 +592,16 @@ def allocate(
                 scored.append((sc, s, reasons))
         scored.sort(key=lambda x: x[0], reverse=True)
         sc, s, reasons = scored[0]
+        # V18: hard consecutive-source skip when a near-tie alternate exists.
+        if (
+            VISUAL_SOFT_V2
+            and recent_videos
+            and s.video == recent_videos[-1]
+            and len(scored) > 1
+        ):
+            alt_sc, alt_s, alt_reasons = scored[1]
+            if alt_s.video != s.video and alt_sc >= sc * 0.92:
+                sc, s, reasons = alt_sc, alt_s, list(alt_reasons) + ["softv2-hard-consec-skip"]
         # Center extract around best_t when possible
         pick = RankedPick(beat=beat, shot=s, score=sc, reasons=reasons)
         picks.append(pick)
