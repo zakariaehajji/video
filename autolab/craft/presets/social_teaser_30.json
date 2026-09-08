@@ -1,0 +1,49 @@
+{
+  "id": "social_teaser_30",
+  "title": "Social teaser 30s",
+  "style": "emotional",
+  "target_duration": 32,
+  "description": "Social teaser 30s",
+  "min_shot_dur": 1.6,
+  "max_shot_dur": 3.8,
+  "peak_min_dur": 2.4,
+  "prefer_xfade_sections": [
+    "intro",
+    "outro",
+    "build"
+  ],
+  "hard_cut_on_peak": true,
+  "role_arc": {
+    "intro": [
+      "portrait",
+      "detail"
+    ],
+    "build": [
+      "portrait",
+      "couple"
+    ],
+    "verse": [
+      "couple",
+      "portrait"
+    ],
+    "chorus": [
+      "couple",
+      "portrait"
+    ],
+    "peak": [
+      "couple",
+      "portrait"
+    ],
+    "outro": [
+      "wide",
+      "couple"
+    ]
+  },
+  "ranking_profile": "C_peak_payoff",
+  "pace_hold": true,
+  "peak_hold": true,
+  "phrase_sync": true,
+  "dense_chorus": false,
+  "title_cards": true,
+  "pack": "autocut_preset"
+}

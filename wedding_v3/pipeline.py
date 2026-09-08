@@ -12,6 +12,7 @@ from wedding_v3.music import MusicAnalysis
 from wedding_v3.ranking import WEIGHT_PROFILES, allocate
 from wedding_v3.shots import build_library_pool, build_pool, load_pool
 from wedding_v3.story import available_roles_from_shots, plan_story
+from wedding_v3 import titles as titles_mod
 from wedding_v3.titles import TOTAL_TARGET, content_duration
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -105,6 +106,7 @@ def run_candidates(
                 "style": style,
                 "profile": profile,
                 "craft_id": (craft or {}).get("id"),
+                "title_cards": bool((craft or {}).get("title_cards")),
                 "overall": critique.overall,
                 "critique": critique.to_dict(),
                 "picks": picks,
@@ -119,16 +121,33 @@ def run_candidates(
             profile = str(craft.get("ranking_profile") or "C_peak_payoff")
             if profile not in WEIGHT_PROFILES:
                 profile = "C_peak_payoff"
-            beats = plan_story(
-                analysis,
-                roles,
-                target_duration=float(craft.get("target_duration") or story_dur),
-                style=style,
-                craft=craft,
-            )
-            picks = allocate(beats, shots, profile=profile)
-            critique = critique_plan(picks, profile=profile, craft=craft)
-            _emit(style, profile, craft, beats, picks, critique, f"craft_{craft.get('id', 'x')}_{profile}")
+            prev_titles = titles_mod.TITLE_CARDS
+            want_titles = bool(craft.get("title_cards"))
+            titles_mod.TITLE_CARDS = want_titles
+            try:
+                td = float(craft.get("target_duration") or story_dur)
+                if want_titles:
+                    td = titles_mod.content_duration(td)
+                beats = plan_story(
+                    analysis,
+                    roles,
+                    target_duration=td,
+                    style=style,
+                    craft=craft,
+                )
+                picks = allocate(beats, shots, profile=profile)
+                critique = critique_plan(picks, profile=profile, craft=craft)
+                _emit(
+                    style,
+                    profile,
+                    craft,
+                    beats,
+                    picks,
+                    critique,
+                    f"craft_{craft.get('id', 'x')}_{profile}",
+                )
+            finally:
+                titles_mod.TITLE_CARDS = prev_titles
     else:
         for style in styles:
             beats = plan_story(analysis, roles, target_duration=story_dur, style=style)
@@ -190,7 +209,12 @@ def run_candidates(
         if work.exists():
             shutil.rmtree(work, ignore_errors=True)
         print(f"  rendering {c['name']} (score {c['overall']:.2f})...", flush=True)
-        render_montage(c["picks"], audio, out, work, use_xfade=True)
+        prev_titles = titles_mod.TITLE_CARDS
+        titles_mod.TITLE_CARDS = bool(c.get("title_cards"))
+        try:
+            render_montage(c["picks"], audio, out, work, use_xfade=True)
+        finally:
+            titles_mod.TITLE_CARDS = prev_titles
         rendered.append({"name": c["name"], "overall": c["overall"], "path": str(out)})
         print(f"  -> {out}", flush=True)
 

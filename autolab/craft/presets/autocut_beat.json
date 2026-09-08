@@ -1,0 +1,55 @@
+{
+  "id": "autocut_beat",
+  "title": "AutoCut beat energy",
+  "style": "energetic",
+  "target_duration": 38,
+  "description": "AutoCut beat energy",
+  "min_shot_dur": 1.15,
+  "max_shot_dur": 3.2,
+  "peak_min_dur": 2.0,
+  "prefer_xfade_sections": [
+    "intro",
+    "outro",
+    "build"
+  ],
+  "hard_cut_on_peak": true,
+  "role_arc": {
+    "intro": [
+      "wide",
+      "motion",
+      "detail"
+    ],
+    "build": [
+      "motion",
+      "portrait",
+      "wide"
+    ],
+    "verse": [
+      "motion",
+      "couple",
+      "portrait"
+    ],
+    "chorus": [
+      "motion",
+      "couple",
+      "wide"
+    ],
+    "peak": [
+      "couple",
+      "motion",
+      "portrait"
+    ],
+    "outro": [
+      "wide",
+      "motion",
+      "couple"
+    ]
+  },
+  "ranking_profile": "D_balanced",
+  "pace_hold": true,
+  "peak_hold": false,
+  "phrase_sync": true,
+  "dense_chorus": true,
+  "title_cards": false,
+  "pack": "autocut_preset"
+}

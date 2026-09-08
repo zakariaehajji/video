@@ -58,7 +58,10 @@ Reject / down-rank:
 
 ## Template recipes
 
-JSON templates in `autolab/craft/templates/` (~24 recipes) define role sequences, min/max durations, and xfade policy. The pipeline loads them via `run_candidates(..., craft_templates=...)`.
+JSON templates in `autolab/craft/templates/` (~24 recipes) and CapCut-style presets in
+`autolab/craft/presets/` define role sequences, min/max durations, and xfade policy.
+Pipeline: `run_candidates(..., craft_templates=...)`. Competitive notes:
+`docs/COMPETITIVE_STRATEGY.md`.
 
 ## Critic checklist (human-like)
 

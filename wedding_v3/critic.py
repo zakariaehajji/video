@@ -9,9 +9,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from wedding_v3 import titles as titles_mod
 from wedding_v3.ranking import RankedPick
 from wedding_v3.shots import color_distance
-from wedding_v3.titles import TITLE_CARDS
 
 COLOR_CONTINUITY = os.environ.get("WEDDING_V3_COLOR_CONTINUITY", "0").strip().lower() in (
     "1",
@@ -183,6 +183,12 @@ def critique_plan(
     if mean_d > 2.2:
         pacing -= 0.1
         problems.append("pacing too slow")
+    # CapCut gap: cut-every-beat spray (many sub-1.1s holds).
+    spray = sum(1 for d in durs if d < 1.1)
+    if spray >= max(4, n // 3):
+        pacing = max(0.35, pacing - 0.12)
+        problems.append("cut-every-beat spray (craft)")
+        recs.append("prefer phrase/downbeat holds; denser cuts only on chorus/peak")
 
     # wedding feeling
     tags = set()
@@ -218,7 +224,7 @@ def critique_plan(
     if xfade:
         polish += 0.1
     # V7 soft title/outro cards: professional wedding-film bookends.
-    if TITLE_CARDS:
+    if titles_mod.TITLE_CARDS:
         polish = min(1.0, polish + 0.18)
         wedding = min(1.0, wedding + 0.06)
     if harsh_color >= max(2, n // 5):

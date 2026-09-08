@@ -174,5 +174,16 @@
     "returncode": 1,
     "score": 8.57,
     "verdict": "REJECT"
+  },
+  {
+    "id": "V20_peak_payoff_faces",
+    "script": "autolab/run_v20_peak_payoff_faces.py",
+    "status": "done",
+    "priority": 16,
+    "hypothesis": "Require eye-contact/face on music peaks to fix weak visual payoff",
+    "depends_on": "V15_emotion_model_refresh",
+    "returncode": 0,
+    "score": 8.82,
+    "verdict": "KEEP"
   }
 ]

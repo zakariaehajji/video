@@ -1,0 +1,55 @@
+{
+  "id": "autocut_vlog_warm",
+  "title": "AutoCut warm vlog",
+  "style": "emotional",
+  "target_duration": 36,
+  "description": "AutoCut warm vlog",
+  "min_shot_dur": 1.9,
+  "max_shot_dur": 4.2,
+  "peak_min_dur": 2.8,
+  "prefer_xfade_sections": [
+    "intro",
+    "outro",
+    "build"
+  ],
+  "hard_cut_on_peak": true,
+  "role_arc": {
+    "intro": [
+      "portrait",
+      "detail",
+      "wide"
+    ],
+    "build": [
+      "portrait",
+      "portrait",
+      "detail"
+    ],
+    "verse": [
+      "portrait",
+      "couple",
+      "detail"
+    ],
+    "chorus": [
+      "couple",
+      "portrait",
+      "motion"
+    ],
+    "peak": [
+      "portrait",
+      "couple",
+      "motion"
+    ],
+    "outro": [
+      "couple",
+      "wide",
+      "portrait"
+    ]
+  },
+  "ranking_profile": "A_emotion",
+  "pace_hold": true,
+  "peak_hold": true,
+  "phrase_sync": true,
+  "dense_chorus": false,
+  "title_cards": true,
+  "pack": "autocut_preset"
+}

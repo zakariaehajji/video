@@ -7,7 +7,8 @@ import subprocess
 from pathlib import Path
 
 from wedding_v3.ranking import RankedPick
-from wedding_v3.titles import TITLE_CARDS, bookend_silent
+from wedding_v3 import titles as titles_mod
+from wedding_v3.titles import bookend_silent
 
 # V10: pull each clip toward a shared warm wedding film look using measured LAB.
 COLOR_MATCH = os.environ.get("WEDDING_V3_COLOR_MATCH", "0").strip().lower() in (
@@ -263,7 +264,7 @@ def render_montage(
         run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", str(silent)])
 
     # V7: soft title/outro cards bookend the silent cut (gated; default off).
-    if TITLE_CARDS:
+    if titles_mod.TITLE_CARDS:
         silent = bookend_silent(silent, work / "titles")
 
     audio = Path(audio)

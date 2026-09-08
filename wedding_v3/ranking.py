@@ -69,6 +69,12 @@ CEREMONY_NARRATIVE = os.environ.get("WEDDING_V3_CEREMONY_NARRATIVE", "0").strip(
     "true",
     "yes",
 )
+# V20: require face / eye-contact proxy + emotion floor on music peaks (hard swaps).
+PEAK_PAYOFF_FACES = os.environ.get("WEDDING_V3_PEAK_PAYOFF_FACES", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # Montage-craft heuristics (always on; modest deltas — does not replace weight profiles).
 CRAFT_SHOT_HEURISTICS = os.environ.get("WEDDING_V3_CRAFT_SHOTS", "1").strip().lower() not in (
@@ -407,6 +413,20 @@ def score_shot(
         if beat.role == "detail" and shot.faces == 0 and tq >= 0.70:
             story = min(1.0, story + 0.06)
             reasons.append("craft-clean-detail")
+        # Magisto-style: reserve real intimacy for peak / high-energy music.
+        if beat.is_peak or beat.section in ("chorus", "peak"):
+            if kiss >= 0.40 or hug >= 0.50 or tears >= 0.42:
+                peak = min(1.0, peak + 0.10)
+                emotion = min(1.0, emotion + 0.08)
+                music = min(1.0, music + 0.06)
+                reasons.append("craft-intimacy-reserve")
+            elif reaction >= 0.50 and shot.faces >= 1 and beat.energy >= 0.55:
+                emotion = min(1.0, emotion + 0.06)
+                reasons.append("craft-reaction-energy")
+            elif beat.is_peak and shot.smile < 0.25 and intimacy < 0.25 and shot.faces >= 1:
+                # Soft demote "pretty but empty" peak faces.
+                peak *= 0.93
+                reasons.append("craft-flat-peak-face")
 
     # V12: music-section ↔ story-role / shot-type grammar (selection bias, modest deltas).
     if MUSIC_SECTION_ROLES:
@@ -464,6 +484,32 @@ def score_shot(
     if beat.is_peak and shot.emotion_score < 0.35:
         total *= 0.55
         reasons.append("weak-peak-emotion")
+    # V20: hard face + emotion payoff on peaks (critic: weak visual payoff / no face).
+    if PEAK_PAYOFF_FACES and beat.is_peak:
+        faces_n = int(getattr(shot, "faces", 0) or 0)
+        emo_n = float(shot.emotion_score or 0.0)
+        sharp_n = float(getattr(shot, "sharpness", 0.0) or 0.0)
+        if faces_n < 1:
+            total *= 0.38
+            reasons.append("peak-no-face-hard")
+        elif emo_n < 0.40:
+            total *= 0.62
+            reasons.append("peak-weak-face-payoff")
+        else:
+            # Eye-contact proxy: visible face + emotion/smile/tears + usable sharpness.
+            eye = (
+                0.35
+                + 0.25 * min(1.0, emo_n)
+                + 0.15 * min(1.0, float(shot.smile or 0.0))
+                + 0.15 * min(1.0, float(getattr(shot, "tears", 0.0) or 0.0))
+                + 0.10 * (1.0 if sharp_n >= 0.55 else 0.0)
+            )
+            if shot.shot_type in ("portrait", "couple") or shot.composition == "close":
+                eye = min(1.0, eye + 0.12)
+            total *= 1.0 + 0.14 * eye
+            reasons.append("peak-face-payoff")
+            if eye >= 0.72:
+                reasons.append("peak-eye-contact")
     # V9: soft quality floors / boosts so montage mean cinematic_quality rises.
     if VISUAL_BOOST:
         cq = float(shot.cinematic_quality or 0.0)
@@ -631,7 +677,125 @@ def allocate(
         picks = polish_ceremony_narrative(picks, shots)
     if REACTION_CUTAWAYS:
         picks = polish_reaction_cutaways(picks, shots)
+    if PEAK_PAYOFF_FACES:
+        picks = polish_peak_payoff_faces(picks, shots)
     return picks
+
+
+def _peak_face_payoff(shot: Shot) -> float:
+    """Higher = better music-peak visual payoff (face + emotion eye-contact proxy)."""
+    faces = int(getattr(shot, "faces", 0) or 0)
+    if faces < 1:
+        return 0.0
+    emo = float(shot.emotion_score or 0.0)
+    smile = float(shot.smile or 0.0)
+    tears = float(getattr(shot, "tears", 0.0) or 0.0)
+    kiss = float(getattr(shot, "kiss", 0.0) or 0.0)
+    hug = float(getattr(shot, "hug", 0.0) or 0.0)
+    sharp = float(getattr(shot, "sharpness", 0.0) or 0.0)
+    score = (
+        0.34 * emo
+        + 0.18 * smile
+        + 0.16 * tears
+        + 0.14 * max(kiss, hug * 0.9)
+        + 0.10 * min(1.0, sharp)
+        + 0.04 * min(2, faces)
+    )
+    if shot.shot_type in ("portrait", "couple") or shot.composition == "close":
+        score += 0.10
+    if emo >= 0.40 and sharp >= 0.50:
+        score += 0.06
+    return float(score)
+
+
+def polish_peak_payoff_faces(
+    picks: list[RankedPick],
+    shots: list[Shot],
+    emo_floor: float = 0.40,
+    max_swaps: int = 8,
+    upgrade_bottom: int = 3,
+) -> list[RankedPick]:
+    """Force face + emotion payoff on music peaks; upgrade weakest peak slots.
+
+    Keeps beat timeline; only swaps source shots. Targets critic failures:
+    'music peak has weak visual payoff' and 'peak lacks eye-contact / face'.
+    """
+    if not picks or max_swaps < 1:
+        return picks
+
+    peak_idxs = [i for i, p in enumerate(picks) if p.beat.is_peak]
+    if not peak_idxs:
+        return picks
+
+    used = {p.shot.id for p in picks}
+    pool = [s for s in shots if int(getattr(s, "faces", 0) or 0) >= 1]
+    if not pool:
+        return picks
+    pool_sorted = sorted(pool, key=_peak_face_payoff, reverse=True)
+
+    out = list(picks)
+    swaps = 0
+
+    def _needs_swap(shot: Shot) -> bool:
+        faces = int(getattr(shot, "faces", 0) or 0)
+        emo = float(shot.emotion_score or 0.0)
+        return faces < 1 or emo < emo_floor
+
+    def _try_swap(i: int, *, force_better: bool = False) -> bool:
+        nonlocal swaps, used
+        if swaps >= max_swaps:
+            return False
+        cur = out[i]
+        cur_pay = _peak_face_payoff(cur.shot)
+        prev_video = out[i - 1].shot.video if i > 0 else ""
+        next_video = out[i + 1].shot.video if i + 1 < len(out) else ""
+        for s in pool_sorted:
+            if s.id in used:
+                continue
+            if s.duration + 0.05 < min(0.7, cur.beat.dur * 0.6):
+                continue
+            if s.video == prev_video or s.video == next_video:
+                continue
+            if float(s.emotion_score or 0.0) < emo_floor:
+                continue
+            new_pay = _peak_face_payoff(s)
+            if force_better and new_pay < cur_pay + 0.045:
+                continue
+            if not force_better and not _needs_swap(cur.shot) and new_pay <= cur_pay:
+                continue
+            used.discard(cur.shot.id)
+            used.add(s.id)
+            tag = "peak-face-upgrade" if force_better else "peak-face-forced"
+            reasons = list(cur.reasons) + [tag, "peak-face-payoff"]
+            if new_pay >= 0.55:
+                reasons.append("peak-eye-contact")
+            out[i] = RankedPick(
+                beat=cur.beat,
+                shot=s,
+                score=max(cur.score, 0.78),
+                reasons=reasons,
+            )
+            swaps += 1
+            return True
+        return False
+
+    # Pass 1: repair peaks missing face or below emotion floor.
+    for i in peak_idxs:
+        if _needs_swap(out[i].shot):
+            _try_swap(i, force_better=False)
+
+    # Pass 2: upgrade weakest peak payoffs even if they barely pass the floor.
+    ranked_peaks = sorted(
+        peak_idxs, key=lambda i: _peak_face_payoff(out[i].shot)
+    )
+    for i in ranked_peaks[: max(0, upgrade_bottom)]:
+        if swaps >= max_swaps:
+            break
+        if _peak_face_payoff(out[i].shot) >= 0.62:
+            continue
+        _try_swap(i, force_better=True)
+
+    return out
 
 
 def _emotion_intensity(shot: Shot) -> float:

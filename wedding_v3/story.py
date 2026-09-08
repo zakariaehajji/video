@@ -30,8 +30,8 @@ CEREMONY_NARRATIVE = os.environ.get("WEDDING_V3_CEREMONY_NARRATIVE", "0").strip(
     "true",
     "yes",
 )
-# V19: milder peak shortening so mid-peak holds can breathe.
-PACE_BREATHE = os.environ.get("WEDDING_V3_PACE_BREATHE", "0").strip().lower() in (
+# V20: prefer phrase/downbeat cut points over every-beat spray (CapCut-competitive).
+PHRASE_SYNC = os.environ.get("WEDDING_V3_PHRASE_SYNC", "0").strip().lower() in (
     "1",
     "true",
     "yes",
@@ -184,6 +184,15 @@ def plan_story(
 
     beats: list[PlannedBeat] = []
     beat_times = [b for b in data.get("beat_times", []) if b <= duration]
+    downbeat_times = [b for b in data.get("downbeat_times", []) if b <= duration]
+    phrase_bounds: list[float] = []
+    for ph in data.get("phrases") or []:
+        if isinstance(ph, dict):
+            for key in ("start", "end"):
+                t = float(ph.get(key, -1))
+                if 0 <= t <= duration:
+                    phrase_bounds.append(t)
+    phrase_bounds = sorted(set(round(t, 3) for t in phrase_bounds))
     peak_times = []
     for p in data.get("peaks", []):
         if isinstance(p, dict):
@@ -198,6 +207,10 @@ def plan_story(
     craft_peak_min = float(craft.get("peak_min_dur") or 0)
     craft_xfade = set(craft.get("prefer_xfade_sections") or [])
     craft_hard_peak = bool(craft.get("hard_cut_on_peak", True))
+    use_phrase = PHRASE_SYNC or bool(craft.get("phrase_sync"))
+    dense_chorus = bool(craft.get("dense_chorus")) or (
+        style == "energetic" and use_phrase
+    )
 
     try:
         for si, sec in enumerate(sections):
@@ -270,21 +283,34 @@ def plan_story(
 
             t = s0
             idx = 0
+            # CapCut-competitive: phrase/downbeat snap grid (not every beat by default).
+            if use_phrase:
+                if dense_chorus and label in ("chorus", "peak"):
+                    snap_grid = downbeat_times or beat_times
+                    snap_hi = max(2.6, base + 0.35)
+                else:
+                    snap_grid = phrase_bounds or downbeat_times or beat_times
+                    snap_hi = max(3.6, base + 0.8)
+            else:
+                snap_grid = beat_times
+                snap_hi = max(2.8, base + 0.4)
+
             while t < s1 - 0.45:
                 role = _select_section_role(prefs, idx, energy, label)
                 dur = base
                 if PACE_HOLD_FLOOR:
-                    future_beats = [b for b in beat_times if b > t + min_dur]
-                    if future_beats:
-                        gap = future_beats[0] - t
-                        if min_dur <= gap <= max(2.8, base + 0.4):
+                    future = [b for b in snap_grid if b > t + min_dur]
+                    if future:
+                        gap = future[0] - t
+                        if min_dur <= gap <= snap_hi:
                             dur = gap
                     dur = max(dur, min_dur)
                 else:
-                    future_beats = [b for b in beat_times if b > t + 0.5]
-                    if future_beats:
-                        gap = future_beats[0] - t
-                        if 0.7 <= gap <= 2.8:
+                    future = [b for b in snap_grid if b > t + 0.5]
+                    if future:
+                        gap = future[0] - t
+                        lo = min_dur if use_phrase else 0.7
+                        if lo <= gap <= snap_hi:
                             dur = gap
                 dur = min(dur, craft_max)
                 end = min(s1, t + dur)
