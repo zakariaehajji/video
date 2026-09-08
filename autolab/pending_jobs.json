@@ -207,5 +207,16 @@
     "returncode": 1,
     "score": 8.84,
     "verdict": "REJECT"
+  },
+  {
+    "id": "V23_kiss_hold_polish",
+    "script": "autolab/run_v23_kiss_hold_polish.py",
+    "status": "done",
+    "priority": 19,
+    "hypothesis": "Hold strongest kiss climax longer without busy mid-peak spray",
+    "depends_on": "V21_reaction_cutaways_v2",
+    "returncode": 1,
+    "score": 8.77,
+    "verdict": "REJECT"
   }
 ]

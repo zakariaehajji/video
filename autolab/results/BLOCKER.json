@@ -1,7 +1,7 @@
 {
   "blocker": null,
-  "cleared_at": "2026-09-08T14:49:16.087625+00:00",
-  "note": "V22_pacing_breathe_v2 REJECT 8.84 vs V21 8.84",
+  "cleared_at": "2026-09-08T15:13:00.382062+00:00",
+  "note": "V23_kiss_hold_polish REJECT 8.77 vs V21 8.84",
   "best_version": "V21_reaction_cutaways_v2",
   "best_score": 8.84,
   "renders_executed": true

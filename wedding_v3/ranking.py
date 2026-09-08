@@ -87,6 +87,12 @@ PEAK_PAYOFF_FACES = os.environ.get("WEDDING_V3_PEAK_PAYOFF_FACES", "0").strip().
     "true",
     "yes",
 )
+# V23: linger on strongest kiss climax only; fund from weak mid-peak spray (not V11 emotion holds).
+KISS_HOLD = os.environ.get("WEDDING_V3_KISS_HOLD", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # Montage-craft heuristics (always on; modest deltas — does not replace weight profiles).
 CRAFT_SHOT_HEURISTICS = os.environ.get("WEDDING_V3_CRAFT_SHOTS", "1").strip().lower() not in (
@@ -716,6 +722,9 @@ def allocate(
             protect_top=2,
             min_var=0.05,
         )
+    # Kiss hold last so face/reaction swaps do not undo climax duration.
+    if KISS_HOLD:
+        picks = polish_kiss_hold(picks, shots)
     return picks
 
 
@@ -1554,6 +1563,277 @@ def polish_peak_emotion_holds(
             return (
                 0 if i in climax_set else 1,
                 -_emotion_intensity(new_picks[i].shot),
+                i,
+            )
+
+        keep = set(sorted(slow_idxs, key=_slow_keep_key)[:cap])
+        trimmed: list[RankedPick] = []
+        for i, p in enumerate(new_picks):
+            if p.beat.want_slowmo and i not in keep:
+                beat = PlannedBeat(
+                    t0=p.beat.t0,
+                    t1=p.beat.t1,
+                    dur=p.beat.dur,
+                    section=p.beat.section,
+                    role=p.beat.role,
+                    energy=p.beat.energy,
+                    want_slowmo=False,
+                    want_xfade=p.beat.want_xfade,
+                    is_peak=p.beat.is_peak,
+                )
+                trimmed.append(RankedPick(beat=beat, shot=p.shot, score=p.score, reasons=p.reasons))
+            else:
+                trimmed.append(p)
+        new_picks = trimmed
+    return new_picks
+
+
+def _kiss_climax_score(shot: Shot) -> float:
+    """Rank true kiss climax; hug is a soft secondary, emotion alone does not qualify."""
+    kiss = float(getattr(shot, "kiss", 0.0) or 0.0)
+    hug = float(getattr(shot, "hug", 0.0) or 0.0)
+    emo = float(shot.emotion_score or 0.0)
+    faces = int(getattr(shot, "faces", 0) or 0)
+    score = kiss + 0.18 * hug + 0.06 * emo
+    if faces >= 2:
+        score += 0.04
+    if shot.shot_type in ("couple", "portrait") or shot.composition == "close":
+        score += 0.03
+    return float(score)
+
+
+def polish_kiss_hold(
+    picks: list[RankedPick],
+    shots: list[Shot] | None = None,
+    top_k: int = 1,
+    max_extend: float = 0.50,
+    target_dur: float = 1.85,
+    kiss_floor: float = 0.32,
+    min_keep: float = 1.0,
+    ensure_kiss: bool = True,
+) -> list[RankedPick]:
+    """Hold strongest kiss climax longer; fund from weak mid-peak spray.
+
+    Differs from V11/V14 emotion holds (which linger on tears/hugs by intensity)
+    and V19/V22 mid-peak breathes (which lengthen busy fillers). Only kiss/near-kiss
+    climaxes get duration; weak mid-peak non-kiss cuts shrink to create contrast.
+
+    Donor floor stays >=1.0 so we do not create critic micro-cut dead-air penalties.
+    """
+    n = len(picks)
+    if n < 6:
+        return picks
+
+    out = list(picks)
+    peak_idxs = [i for i, p in enumerate(out) if p.beat.is_peak or p.beat.section == "peak"]
+    if len(peak_idxs) < 3:
+        return picks
+
+    # Optional: if peak lacks a real kiss, swap best unused kiss into a weak mid slot.
+    if ensure_kiss and shots:
+        peak_kiss = max(float(getattr(out[i].shot, "kiss", 0.0) or 0.0) for i in peak_idxs)
+        if peak_kiss < 0.38:
+            used = {p.shot.id for p in out}
+            cand = sorted(
+                [
+                    s
+                    for s in shots
+                    if s.id not in used
+                    and float(getattr(s, "kiss", 0.0) or 0.0) >= 0.38
+                    and int(getattr(s, "faces", 0) or 0) >= 1
+                ],
+                key=_kiss_climax_score,
+                reverse=True,
+            )
+            if cand:
+                mid = peak_idxs[1:-1] if len(peak_idxs) >= 4 else list(peak_idxs)
+                targets = sorted(
+                    mid,
+                    key=lambda i: (
+                        1 if "reaction-cutaway-forced" in (out[i].reasons or []) else 0,
+                        float(getattr(out[i].shot, "kiss", 0.0) or 0.0),
+                        _emotion_intensity(out[i].shot),
+                    ),
+                )
+                for ti in targets:
+                    if float(getattr(out[ti].shot, "kiss", 0.0) or 0.0) >= 0.35:
+                        continue
+                    if "reaction-cutaway-forced" in (out[ti].reasons or []):
+                        continue
+                    s = cand[0]
+                    if s.duration + 0.05 < min(0.7, out[ti].beat.dur * 0.6):
+                        continue
+                    reasons = list(out[ti].reasons) + ["kiss-hold-ensure"]
+                    out[ti] = RankedPick(
+                        beat=out[ti].beat, shot=s, score=out[ti].score, reasons=reasons
+                    )
+                    break
+
+    # Select climax indices by kiss score — require a real kiss signal.
+    kiss_ranked = sorted(
+        [
+            i
+            for i in peak_idxs
+            if float(getattr(out[i].shot, "kiss", 0.0) or 0.0) >= kiss_floor
+        ],
+        key=lambda i: _kiss_climax_score(out[i].shot),
+        reverse=True,
+    )
+    if not kiss_ranked:
+        kiss_ranked = sorted(
+            peak_idxs,
+            key=lambda i: _kiss_climax_score(out[i].shot),
+            reverse=True,
+        )
+        kiss_ranked = [
+            i
+            for i in kiss_ranked
+            if float(getattr(out[i].shot, "kiss", 0.0) or 0.0) >= 0.25
+            or float(getattr(out[i].shot, "hug", 0.0) or 0.0) >= 0.55
+        ][:1]
+    # Single decisive kiss linger (top_k default 1) — dual holds created micro-cut spray.
+    climaxes = kiss_ranked[: max(1, min(top_k, 2))]
+    if not climaxes:
+        return out
+    climax_set = set(climaxes)
+
+    extensions: dict[int, float] = {}
+    for i in climaxes:
+        cur = float(out[i].beat.dur)
+        avail = float(out[i].shot.duration)
+        local_target = target_dur if i == climaxes[0] else min(target_dur - 0.25, cur + 0.28)
+        local_max = max_extend if i == climaxes[0] else min(max_extend, 0.28)
+        target = min(local_target, cur + local_max, avail * 0.92)
+        if target > cur + 0.08:
+            extensions[i] = target - cur
+    need = sum(extensions.values())
+    if need < 0.12:
+        return out
+
+    # Donors: weak mid-peak spray + mild bookend surplus. Never create sub-1.0 cuts.
+    interior = peak_idxs[1:-1] if len(peak_idxs) >= 4 else list(peak_idxs)
+    donors = [
+        i
+        for i in interior
+        if i not in climax_set
+        and float(getattr(out[i].shot, "kiss", 0.0) or 0.0) < 0.30
+        and float(getattr(out[i].shot, "hug", 0.0) or 0.0) < 0.55
+        and "reaction-cutaway-forced" not in (out[i].reasons or [])
+        and "kiss-hold-ensure" not in (out[i].reasons or [])
+    ]
+    donors.sort(
+        key=lambda i: (
+            float(getattr(out[i].shot, "kiss", 0.0) or 0.0),
+            _emotion_intensity(out[i].shot),
+            -float(out[i].beat.dur),
+        )
+    )
+    extra = [
+        i
+        for i in range(n)
+        if i not in climax_set
+        and i not in (0, n - 1)
+        and i not in peak_idxs
+        and out[i].beat.section in ("intro", "build", "verse", "outro")
+        and float(out[i].beat.dur) >= 1.25
+    ]
+    extra.sort(key=lambda i: (_emotion_intensity(out[i].shot), -float(out[i].beat.dur)))
+    donors.extend(extra)
+
+    shrinks: dict[int, float] = {}
+    remaining = need
+    max_give = 0.22
+    for i in donors:
+        if remaining <= 0.02:
+            break
+        cur = float(out[i].beat.dur)
+        kiss_i = float(getattr(out[i].shot, "kiss", 0.0) or 0.0)
+        hug_i = float(getattr(out[i].shot, "hug", 0.0) or 0.0)
+        emo = _emotion_intensity(out[i].shot)
+        # Floor >=1.0 avoids dead-air micro-cut craft penalty (V23 first render).
+        if out[i].beat.section == "peak" and kiss_i < 0.30 and hug_i < 0.55:
+            floor = max(min_keep, 1.0)
+            if "reaction-cutaway" in (out[i].reasons or []):
+                floor = max(floor, 1.05)
+        else:
+            floor = max(min_keep, 1.15)
+            if emo >= 0.50:
+                floor = max(floor, 1.25)
+            if out[i].beat.section in ("intro", "outro"):
+                floor = max(floor, 1.25)
+        can = max(0.0, cur - floor)
+        give = min(can, remaining, max_give)
+        if give >= 0.05:
+            shrinks[i] = give
+            remaining -= give
+
+    gained = need - remaining
+    if gained < 0.10:
+        return out
+    if remaining > 0.05:
+        scale = gained / need
+        extensions = {i: e * scale for i, e in extensions.items()}
+
+    trial = [
+        float(out[i].beat.dur) + extensions.get(i, 0.0) - shrinks.get(i, 0.0)
+        for i in range(n)
+    ]
+    # Hard reject only if we CREATE a new micro-cut (base plan may already have one).
+    if any(
+        trial[i] < 1.0 - 1e-9 and float(out[i].beat.dur) >= 1.0 - 1e-9
+        for i in range(n)
+    ):
+        return out
+    mean_t = sum(trial) / n
+    var_t = sum((d - mean_t) ** 2 for d in trial) / n
+    base_mean = sum(float(out[i].beat.dur) for i in range(n)) / n
+    base_var = sum((float(out[i].beat.dur) - base_mean) ** 2 for i in range(n)) / n
+    if var_t < 0.05 or var_t + 1e-9 < base_var * 0.85:
+        return out
+
+    t0 = float(out[0].beat.t0)
+    new_picks: list[RankedPick] = []
+    for i, p in enumerate(out):
+        dur = float(p.beat.dur) + extensions.get(i, 0.0) - shrinks.get(i, 0.0)
+        # Preserve pre-existing micros; never invent new ones via shrinks.
+        if i in shrinks:
+            dur = max(1.0, round(dur, 3))
+        else:
+            dur = max(0.7, round(dur, 3))
+        t1 = round(t0 + dur, 3)
+        slow = p.beat.want_slowmo
+        reasons = list(p.reasons)
+        if i in climax_set and extensions.get(i, 0.0) >= 0.10:
+            reasons = reasons + ["kiss-hold"]
+            if (
+                i == climaxes[0]
+                and p.beat.role in ("couple", "portrait")
+                and float(getattr(p.shot, "kiss", 0.0) or 0.0) >= 0.35
+            ):
+                slow = True
+        beat = PlannedBeat(
+            t0=round(t0, 3),
+            t1=t1,
+            dur=round(t1 - t0, 3),
+            section=p.beat.section,
+            role=p.beat.role,
+            energy=p.beat.energy,
+            want_slowmo=slow,
+            want_xfade=p.beat.want_xfade and not p.beat.is_peak,
+            is_peak=p.beat.is_peak,
+        )
+        new_picks.append(RankedPick(beat=beat, shot=p.shot, score=p.score, reasons=reasons))
+        t0 = t1
+
+    # Cap slowmo density (same policy as peak_emotion_holds).
+    cap = max(2, len(new_picks) // 5)
+    slow_idxs = [i for i, p in enumerate(new_picks) if p.beat.want_slowmo]
+    if len(slow_idxs) > cap:
+
+        def _slow_keep_key(i: int) -> tuple:
+            return (
+                0 if i in climax_set else 1,
+                -_kiss_climax_score(new_picks[i].shot),
                 i,
             )
 
