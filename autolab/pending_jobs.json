@@ -163,5 +163,16 @@
     "returncode": 1,
     "score": 8.61,
     "verdict": "REJECT"
+  },
+  {
+    "id": "V19_pacing_breathe",
+    "script": "autolab/run_v19_pacing_breathe.py",
+    "status": "done",
+    "priority": 14,
+    "hypothesis": "Slightly longer mid-peak holds reduce busy pacing without flattening emotion",
+    "depends_on": "V15_emotion_model_refresh",
+    "returncode": 1,
+    "score": 8.57,
+    "verdict": "REJECT"
   }
 ]

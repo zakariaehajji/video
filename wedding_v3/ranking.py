@@ -45,6 +45,12 @@ PEAK_HOLD_SOFT = os.environ.get("WEDDING_V3_PEAK_HOLD_SOFT", "0").strip().lower(
     "true",
     "yes",
 )
+# V19: slightly longer mid-peak holds (fund from bookends — never shrink peaks).
+PACE_BREATHE = os.environ.get("WEDDING_V3_PACE_BREATHE", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 # V12: prefer shots that match music-section story grammar.
 MUSIC_SECTION_ROLES = os.environ.get("WEDDING_V3_MUSIC_SECTION_ROLES", "0").strip().lower() in (
     "1",
@@ -619,6 +625,8 @@ def allocate(
         )
     elif PEAK_HOLD:
         picks = polish_peak_emotion_holds(picks)
+    if PACE_BREATHE:
+        picks = polish_pace_breathe(picks)
     if CEREMONY_NARRATIVE:
         picks = polish_ceremony_narrative(picks, shots)
     if REACTION_CUTAWAYS:
@@ -925,6 +933,126 @@ def polish_reaction_cutaways(
         swaps += 1
 
     return out
+
+
+def polish_pace_breathe(
+    picks: list[RankedPick],
+    max_extend: float = 0.28,
+    target_mid: float = 1.42,
+    min_bookend: float = 1.15,
+) -> list[RankedPick]:
+    """Lengthen mid-peak holds using bookend surplus — never shrink peak shots.
+
+    Differs from V11/V14 climax steals: mid-peak (bulk of peak section) gets a
+    gentle breathe so pacing feels less busy without flattening emotion climaxes.
+    """
+    n = len(picks)
+    if n < 6:
+        return picks
+    peak_idxs = [i for i, p in enumerate(picks) if p.beat.is_peak or p.beat.section == "peak"]
+    if len(peak_idxs) < 3:
+        return picks
+
+    # Protect absolute top climax — do not treat it as a "mid" breathe target.
+    ranked = sorted(peak_idxs, key=lambda i: _emotion_intensity(picks[i].shot), reverse=True)
+    top_climax = set(ranked[:1])
+
+    # Mid-peak = interior peak indices excluding top climax and outer peak edges.
+    interior = peak_idxs[1:-1] if len(peak_idxs) >= 4 else list(peak_idxs)
+    mid_targets = [
+        i
+        for i in interior
+        if i not in top_climax
+        and picks[i].beat.role in ("couple", "portrait", "motion")
+        and float(picks[i].beat.dur) < target_mid - 0.04
+    ]
+    if not mid_targets:
+        mid_targets = [
+            i
+            for i in interior
+            if i not in top_climax and float(picks[i].beat.dur) < target_mid - 0.04
+        ]
+    # Cap how many breathes so we don't homogenize the whole peak.
+    mid_targets = mid_targets[: max(3, len(peak_idxs) // 2)]
+    if not mid_targets:
+        return picks
+
+    extensions: dict[int, float] = {}
+    for i in mid_targets:
+        cur = float(picks[i].beat.dur)
+        avail = float(picks[i].shot.duration)
+        target = min(target_mid, cur + max_extend, avail * 0.90)
+        if target > cur + 0.06:
+            extensions[i] = target - cur
+    need = sum(extensions.values())
+    if need < 0.12:
+        return picks
+
+    # Donors: non-peak bookends / soft sections — never peak (keeps peak un-busy).
+    peak_set = set(peak_idxs)
+    donors = [
+        i
+        for i in range(n)
+        if i not in peak_set
+        and i not in (0, n - 1)  # keep true open/close intact
+        and picks[i].beat.section in ("intro", "outro", "build", "verse")
+    ]
+    # Prefer longer, lower-emotion donors.
+    donors.sort(
+        key=lambda i: (
+            -float(picks[i].beat.dur),
+            _emotion_intensity(picks[i].shot),
+        )
+    )
+
+    shrinks: dict[int, float] = {}
+    remaining = need
+    for i in donors:
+        if remaining <= 0.02:
+            break
+        cur = float(picks[i].beat.dur)
+        emo = _emotion_intensity(picks[i].shot)
+        floor = min_bookend
+        if emo >= 0.50:
+            floor = max(floor, 1.30)
+        if picks[i].beat.section in ("intro", "outro"):
+            floor = max(floor, 1.25)
+        can = max(0.0, cur - floor)
+        give = min(can, remaining, 0.32)
+        if give >= 0.05:
+            shrinks[i] = give
+            remaining -= give
+
+    gained = need - remaining
+    if gained < 0.10:
+        return picks
+    if remaining > 0.04:
+        scale = gained / need
+        extensions = {i: e * scale for i, e in extensions.items()}
+
+    t0 = float(picks[0].beat.t0)
+    new_picks: list[RankedPick] = []
+    for i, p in enumerate(picks):
+        dur = float(p.beat.dur) + extensions.get(i, 0.0) - shrinks.get(i, 0.0)
+        dur = max(0.85, round(dur, 3))
+        t1 = round(t0 + dur, 3)
+        reasons = list(p.reasons)
+        if extensions.get(i, 0.0) >= 0.08:
+            reasons = reasons + ["pace-breathe"]
+        beat = PlannedBeat(
+            t0=round(t0, 3),
+            t1=t1,
+            dur=round(t1 - t0, 3),
+            section=p.beat.section,
+            role=p.beat.role,
+            energy=p.beat.energy,
+            want_slowmo=p.beat.want_slowmo,
+            want_xfade=p.beat.want_xfade,
+            is_peak=p.beat.is_peak,
+        )
+        new_picks.append(RankedPick(beat=beat, shot=p.shot, score=p.score, reasons=reasons))
+        t0 = t1
+    return new_picks
 
 
 def polish_peak_emotion_holds(

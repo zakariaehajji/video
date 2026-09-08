@@ -1,0 +1,24 @@
+EXPERIMENT: V19_pacing_breathe — mid-peak holds funded from bookends (never shrink peaks); milder story peak floor
+
+FILES_CHANGED:
+- `wedding_v3/ranking.py` (`PACE_BREATHE`, `polish_pace_breathe`)
+- `wedding_v3/story.py` (milder peak shortening when breathe on)
+- `autolab/run_v19_pacing_breathe.py`
+- `Output/autolab/V19/EVAL.json` + renders
+- `autolab/state/lab_state.json`, `task_queue.json`, `experiment_log.md`, `pending_jobs.json`, `results/BLOCKER.json`
+
+COMMANDS_RUN:
+- `.venv\Scripts\python.exe -c` (import smoke)
+- `.venv\Scripts\python.exe autolab\run_v19_pacing_breathe.py`
+
+RENDER: yes — `Output/autolab/V19/autolab_pacing_breathe/candidate_03_classic_A_emotion.mp4` (best of 2 renders); `BEST_v15.mp4` untouched; no `BEST_v19`
+
+EVALUATION: 8 breathes applied; peak_mean_dur 1.20s; dur_var collapsed to 0.0093 → pacing 5.5 (was 7.5). Homogenized mid-peak holds hurt contrast more than they helped “busy” feel. Emotion ≈ flat (0.566 peak).
+
+SCORE: 8.57 (Δ −0.16 vs V15 8.73)
+
+DECISION: REJECT — keep V15_emotion_model_refresh @ 8.73
+
+REMAINING_WEAKNESS: peak visual payoff / face-on-climax; pacing still busy but needs intentional short/long contrast, not uniform longer mid-peaks; visual_quality ~6.3
+
+NEXT_EXPERIMENT: V20_peak_payoff_faces — require eye-contact/face on music peaks

@@ -30,6 +30,12 @@ CEREMONY_NARRATIVE = os.environ.get("WEDDING_V3_CEREMONY_NARRATIVE", "0").strip(
     "true",
     "yes",
 )
+# V19: milder peak shortening so mid-peak holds can breathe.
+PACE_BREATHE = os.environ.get("WEDDING_V3_PACE_BREATHE", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 
 ARC_BY_SECTION = {
@@ -242,6 +248,14 @@ def plan_story(
                     else:
                         base = min(base, 1.40)
                         min_dur = min(min_dur, 0.90)
+                elif PACE_BREATHE and PACE_HOLD_FLOOR:
+                    # Milder peak shortening than default pace-hold — reduce busy mid-peak cuts.
+                    if style == "emotional":
+                        base = min(base, 1.72)
+                        min_dur = max(min_dur, 1.18)
+                    else:
+                        base = min(base, 1.48)
+                        min_dur = max(min_dur, 1.05)
                 elif PACE_HOLD_FLOOR:
                     base = min(base, 1.55 if style == "emotional" else 1.35)
                     min_dur = min(min_dur, 1.0 if style == "emotional" else 0.85)

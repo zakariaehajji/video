@@ -1,7 +1,7 @@
 {
   "blocker": null,
-  "cleared_at": "2026-09-08T14:03:41.779176+00:00",
-  "note": "V18_visual_quality_soft_v2 REJECT 8.61 vs V15 8.73",
+  "cleared_at": "2026-09-08T14:09:25.444603+00:00",
+  "note": "V19_pacing_breathe REJECT 8.57 vs V15 8.73",
   "best_version": "V15_emotion_model_refresh",
   "best_score": 8.73,
   "renders_executed": true
