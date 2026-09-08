@@ -27,6 +27,12 @@ VISUAL_SOFT_V2 = os.environ.get("WEDDING_V3_VISUAL_SOFT_V2", "0").strip().lower(
     "true",
     "yes",
 )
+# V26: bookend/verse CQ polish under V21 stack — no peak demotion; post-allocate swaps.
+VISUAL_SOFT_V3 = os.environ.get("WEDDING_V3_VISUAL_SOFT_V3", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 # V10: prefer palette-similar cuts across sources (reduces stock-footage jumps).
 COLOR_CONTINUITY = os.environ.get("WEDDING_V3_COLOR_CONTINUITY", "0").strip().lower() in (
     "1",
@@ -173,7 +179,12 @@ def _effective_weights(profile: str) -> dict[str, float]:
         w["visual"] = min(0.24, w["visual"] + 0.07)
         w["variety"] = max(0.06, w["variety"] - 0.01)
         w["continuity"] = max(0.07, w["continuity"] - 0.01)
-    if VISUAL_SOFT_V2 and not VISUAL_BOOST and not VISUAL_SOFT:
+    if VISUAL_SOFT_V3 and not VISUAL_BOOST and not VISUAL_SOFT and not VISUAL_SOFT_V2:
+        # Tiny CQ nudge only — V18's +0.02 still reshuffled emotion; keep budgets intact.
+        w["visual"] = min(0.17, w["visual"] + 0.01)
+        w["variety"] = max(0.07, w["variety"])
+        w["emotion"] = max(0.17, w["emotion"])
+    elif VISUAL_SOFT_V2 and not VISUAL_BOOST and not VISUAL_SOFT:
         # Milder than V13: tiny CQ nudge; protect emotion/variety budgets.
         w["visual"] = min(0.18, w["visual"] + 0.02)
         w["variety"] = max(0.07, w["variety"])
@@ -201,6 +212,7 @@ def _effective_weights(profile: str) -> dict[str, float]:
         VISUAL_BOOST
         or VISUAL_SOFT
         or VISUAL_SOFT_V2
+        or VISUAL_SOFT_V3
         or COLOR_CONTINUITY
         or CONTINUITY_SOFT_V2
         or MUSIC_SECTION_ROLES
@@ -317,6 +329,13 @@ def score_shot(
             0.55 * shot.technical_quality
             + 0.32 * shot.cinematic_quality
             + 0.13 * sharpness
+        )
+    elif VISUAL_SOFT_V3:
+        # Near-baseline blend; post-allocate polish does the real CQ lift.
+        visual = (
+            0.58 * shot.technical_quality
+            + 0.30 * shot.cinematic_quality
+            + 0.12 * sharpness
         )
     elif VISUAL_SOFT:
         # Soft blend: slightly more CQ/sharpness than baseline, far milder than V9.
@@ -660,6 +679,35 @@ def score_shot(
         if recent_videos and shot.video in recent_videos[-1:]:
             total *= 0.78
             reasons.append("softv2-consec-guard")
+    # V26: bookend/verse-only CQ nudge. Never touch peaks / intimacy / reactions.
+    elif VISUAL_SOFT_V3:
+        cq = float(shot.cinematic_quality or 0.0)
+        peakish = bool(beat.is_peak) or beat.section in ("peak", "chorus", "bridge")
+        intimacy = (
+            float(getattr(shot, "kiss", 0.0) or 0.0) >= 0.35
+            or float(getattr(shot, "hug", 0.0) or 0.0) >= 0.45
+            or float(getattr(shot, "tears", 0.0) or 0.0) >= 0.45
+            or _is_true_reaction_cutaway(shot)
+        )
+        if peakish or intimacy:
+            # Tiny optional boost if already strong CQ — never demote.
+            if cq >= 0.70:
+                total *= 1.008
+                reasons.append("softv3-peak-cq")
+        elif beat.section in ("intro", "outro", "verse", "build"):
+            if cq < 0.50:
+                total *= 0.97
+                reasons.append("softv3-low-cq")
+            elif cq >= 0.64:
+                total *= 1.022
+                reasons.append("softv3-high-cq")
+            if beat.section in ("intro", "outro") and cq >= 0.62:
+                total *= 1.012
+                reasons.append("softv3-bookend-boost")
+        # Mild consec guard only (V18's 0.78 reshuffled too hard with V21).
+        if recent_videos and shot.video in recent_videos[-1:]:
+            total *= 0.90
+            reasons.append("softv3-consec-guard")
     # V10: mild warmth preference (wedding film look) without hard filtering.
     # V24 soft: gentler cool penalty / warmth nudge so CQ/emotion stay primary.
     if COLOR_CONTINUITY:
@@ -733,20 +781,23 @@ def allocate(
                 scored.append((sc, s, reasons))
         scored.sort(key=lambda x: x[0], reverse=True)
         sc, s, reasons = scored[0]
-        # V18 / V24: hard consecutive-source skip when a near-tie alternate exists.
+        # V18 / V24 / V26: hard consecutive-source skip when a near-tie alternate exists.
         if (
-            (VISUAL_SOFT_V2 or CONTINUITY_SOFT_V2)
+            (VISUAL_SOFT_V2 or VISUAL_SOFT_V3 or CONTINUITY_SOFT_V2)
             and recent_videos
             and s.video == recent_videos[-1]
             and len(scored) > 1
         ):
             alt_sc, alt_s, alt_reasons = scored[1]
-            thresh = 0.90 if CONTINUITY_SOFT_V2 and not VISUAL_SOFT_V2 else 0.92
-            tag = (
-                "contsoftv2-hard-consec-skip"
-                if CONTINUITY_SOFT_V2 and not VISUAL_SOFT_V2
-                else "softv2-hard-consec-skip"
-            )
+            if CONTINUITY_SOFT_V2 and not VISUAL_SOFT_V2 and not VISUAL_SOFT_V3:
+                thresh = 0.90
+                tag = "contsoftv2-hard-consec-skip"
+            elif VISUAL_SOFT_V3 and not VISUAL_SOFT_V2:
+                thresh = 0.94
+                tag = "softv3-hard-consec-skip"
+            else:
+                thresh = 0.92
+                tag = "softv2-hard-consec-skip"
             if alt_s.video != s.video and alt_sc >= sc * thresh:
                 sc, s, reasons = alt_sc, alt_s, list(alt_reasons) + [tag]
         # V24: if top pick is a harsh color jump vs previous, prefer near-tie alternate.
@@ -795,6 +846,9 @@ def allocate(
         picks = polish_peak_payoff_faces(picks, shots)
     if REACTION_CUTAWAYS:
         picks = polish_reaction_cutaways(picks, shots)
+    if VISUAL_SOFT_V3:
+        # After V21 face/reaction polish so we never undo peak grammar for CQ.
+        picks = polish_visual_cq_soft_v3(picks, shots)
     if PACE_BREATHE_V2:
         picks = polish_pace_breathe(
             picks,
@@ -927,6 +981,146 @@ def polish_peak_payoff_faces(
         if _peak_face_payoff(out[i].shot) >= 0.62:
             continue
         _try_swap(i, force_better=True)
+
+    return out
+
+
+def _visual_cq_v3_protected(shot: Shot, beat: PlannedBeat) -> bool:
+    """Peaks, intimacy, and true reactions must not be swapped for CQ."""
+    if beat.is_peak or beat.section in ("peak", "chorus", "bridge"):
+        return True
+    if _is_true_reaction_cutaway(shot) or _is_intimacy_peak_shot(shot, beat):
+        return True
+    kiss = float(getattr(shot, "kiss", 0.0) or 0.0)
+    hug = float(getattr(shot, "hug", 0.0) or 0.0)
+    tears = float(getattr(shot, "tears", 0.0) or 0.0)
+    if kiss >= 0.35 or hug >= 0.45 or tears >= 0.48:
+        return True
+    return False
+
+
+def _visual_cq_v3_role_fit(section: str, role: str, shot: Shot) -> float:
+    """Section grammar fit for candidate shot type (not the planned role alone)."""
+    st = shot.shot_type or role
+    table = SECTION_ROLE_FIT.get(section) or {}
+    by_type = float(table.get(st, 0.35))
+    exact = 1.0 if (st == role or role in (shot.story_roles or ())) else 0.0
+    # Soft adjacency credit only — never borrow the planned role's high fit.
+    adj = _role_match(shot, role)
+    return max(by_type, exact, 0.55 * adj if adj >= 0.55 else 0.0)
+
+
+def polish_visual_cq_soft_v3(
+    picks: list[RankedPick],
+    shots: list[Shot],
+    max_swaps: int = 4,
+    cq_floor: float = 0.58,
+    min_gain: float = 0.055,
+    min_role_fit: float = 0.50,
+) -> list[RankedPick]:
+    """Upgrade lowest-CQ intro/outro/verse picks without touching V21 peak grammar.
+
+    V9/V13/V18 ranking nudges reshuffled emotion. V26 instead surgically replaces
+    weak bookend CQ (often stock-looking detail/wide) when a higher-CQ alternate
+    fits section grammar — including portrait-for-detail on intro when gain is large.
+    """
+    if not picks or max_swaps < 1:
+        return picks
+
+    candidates_idx = []
+    for i, p in enumerate(picks):
+        if _visual_cq_v3_protected(p.shot, p.beat):
+            continue
+        if p.beat.section not in ("intro", "outro", "verse", "build"):
+            continue
+        cq = float(p.shot.cinematic_quality or 0.0)
+        if cq >= cq_floor:
+            continue
+        # Skip picks already tagged as reaction cutaways in reasons.
+        if any(
+            r.startswith("reaction") or r in ("forced-reaction-cutaway", "reaction-cutaway-v2")
+            for r in (p.reasons or [])
+        ):
+            continue
+        candidates_idx.append(i)
+
+    if not candidates_idx:
+        return picks
+
+    # Worst CQ first.
+    candidates_idx.sort(key=lambda i: float(picks[i].shot.cinematic_quality or 0.0))
+    used = {p.shot.id for p in picks}
+    out = list(picks)
+    swaps = 0
+    pool = sorted(
+        shots,
+        key=lambda s: float(s.cinematic_quality or 0.0),
+        reverse=True,
+    )
+
+    for i in candidates_idx:
+        if swaps >= max_swaps:
+            break
+        cur = out[i]
+        cur_cq = float(cur.shot.cinematic_quality or 0.0)
+        prev_video = out[i - 1].shot.video if i > 0 else ""
+        next_video = out[i + 1].shot.video if i + 1 < len(out) else ""
+        role = cur.beat.role
+        section = cur.beat.section
+        best: tuple[float, Shot] | None = None
+        for s in pool:
+            if s.id in used:
+                continue
+            if s.video == prev_video or s.video == next_video:
+                continue
+            if s.duration + 0.05 < min(0.7, cur.beat.dur * 0.6):
+                continue
+            if _is_true_reaction_cutaway(s) and section in ("intro", "outro"):
+                # Keep true reactions for peak intercalation pool.
+                continue
+            new_cq = float(s.cinematic_quality or 0.0)
+            gain = new_cq - cur_cq
+            if gain < min_gain:
+                continue
+            fit = _visual_cq_v3_role_fit(section, role, s)
+            # Same-type preferred; cross-type only with solid section fit + bigger gain.
+            same = (s.shot_type == role) or (role in (s.story_roles or ()))
+            if not same:
+                if fit < min_role_fit or gain < min_gain + 0.04:
+                    continue
+                # Intro/outro: allow portrait flex; block couple (stock-ceremony feel).
+                if section in ("intro", "outro") and s.shot_type == "couple":
+                    continue
+                if section in ("intro", "outro") and s.shot_type not in (
+                    "portrait",
+                    "detail",
+                    "wide",
+                ):
+                    continue
+            # Verse: do not tank emotion while chasing CQ.
+            if section == "verse":
+                cur_emo = float(cur.shot.emotion_score or 0.0)
+                new_emo = float(s.emotion_score or 0.0)
+                if new_emo + 0.06 < cur_emo:
+                    continue
+            score = gain + 0.08 * fit + (0.04 if same else 0.0)
+            if best is None or score > best[0]:
+                best = (score, s)
+        if best is None:
+            continue
+        s = best[1]
+        used.discard(cur.shot.id)
+        used.add(s.id)
+        reasons = list(cur.reasons) + ["softv3-cq-upgrade"]
+        if s.shot_type != role and role not in (s.story_roles or ()):
+            reasons.append("softv3-role-flex")
+        out[i] = RankedPick(
+            beat=cur.beat,
+            shot=s,
+            score=max(cur.score, 0.72),
+            reasons=reasons,
+        )
+        swaps += 1
 
     return out
 

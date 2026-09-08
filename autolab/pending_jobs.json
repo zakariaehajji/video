@@ -241,5 +241,16 @@
     "score": 8.81,
     "verdict": "REJECT",
     "ensure_ok": true
+  },
+  {
+    "id": "V26_visual_cq_soft_v3",
+    "script": "autolab/run_v26_visual_cq_soft_v3.py",
+    "status": "done",
+    "priority": 26,
+    "hypothesis": "Attack visual_quality~6.3 with bookend CQ upgrades under V21 stack",
+    "depends_on": "V21_reaction_cutaways_v2",
+    "returncode": 1,
+    "score": 8.63,
+    "verdict": "REJECT"
   }
 ]

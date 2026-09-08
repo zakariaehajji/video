@@ -1,0 +1,22 @@
+EXPERIMENT: V26_visual_cq_soft_v3 — bookend CQ upgrades under V21 stack (post-allocate polish; peaks/reactions untouched)
+
+FILES_CHANGED:
+- `wedding_v3/ranking.py` (`VISUAL_SOFT_V3`, `polish_visual_cq_soft_v3`)
+- `autolab/run_v26_visual_cq_soft_v3.py`
+- `Output/autolab/V26/EVAL.json`, lab state / experiment log / blocker / task queue
+
+COMMANDS_RUN:
+- unit polish on V21 plan
+- `.venv\Scripts\python.exe autolab\run_v26_visual_cq_soft_v3.py`
+
+RENDER: yes — `Output/autolab/V26/autolab_visual_cq_soft_v3/candidate_01_emotional_A_emotion.mp4` (+ candidate_02)
+
+EVALUATION: visual_quality 6.32→6.53 (mean CQ 0.653, 3 upgrades); emotion 8.11; variety fell 10.0→8.18 from portrait role-flex / fewer sources. Overall down vs V21.
+
+SCORE: 8.63 (V21 best 8.84, Δ −0.21)
+
+DECISION: REJECT — keep `V21_reaction_cutaways_v2` / `BEST_v21.mp4` (8.84). V3/BEST untouched.
+
+REMAINING_WEAKNESS: visual_quality~6.3 still, but CQ lifts that swap intro detail/wide→portrait hurt variety; weak kiss climax placement still open.
+
+NEXT_EXPERIMENT: V27_kiss_climax_reposition — move existing best kiss to late-peak without new pool swaps.
