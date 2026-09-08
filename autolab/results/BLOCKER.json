@@ -1,7 +1,7 @@
 {
   "blocker": null,
-  "cleared_at": "2026-09-08T13:10:55.571164+00:00",
-  "note": "V12_music_section_roles REJECT 8.51 vs V10 8.69",
+  "cleared_at": "2026-09-08T13:16:32.619988+00:00",
+  "note": "V13_visual_quality_soft REJECT 8.66 vs V10 8.69",
   "best_version": "V10_continuity_color",
   "best_score": 8.69,
   "renders_executed": true

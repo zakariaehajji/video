@@ -97,5 +97,16 @@
     "returncode": 1,
     "score": 8.51,
     "verdict": "REJECT"
+  },
+  {
+    "id": "V13_visual_quality_soft",
+    "script": "autolab/run_v13_visual_soft.py",
+    "status": "done",
+    "priority": 10,
+    "hypothesis": "Soft CQ preference without V9 consecutive-source failure",
+    "depends_on": "V10_continuity_color",
+    "returncode": 1,
+    "score": 8.66,
+    "verdict": "REJECT"
   }
 ]
