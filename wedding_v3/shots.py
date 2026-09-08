@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -14,8 +15,14 @@ import numpy as np
 from wedding_v3.emotion import analyze_video, ensure_yunet_model
 
 CACHE_DIR = Path(__file__).resolve().parents[1] / "Output" / "v3_cache" / "shots"
+# MediaPipe Face Landmarker blendshapes (gated). Off by default → V10 pool intact.
+EMOTION_MEDIAPIPE = os.environ.get("WEDDING_V3_EMOTION_MEDIAPIPE", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 # Bump when emotion/intimacy/color feature schema changes so stale pools are not reused.
-CACHE_SCHEMA = "v5_library_craft"
+CACHE_SCHEMA = "v6_mediapipe_emotion" if EMOTION_MEDIAPIPE else "v5_library_craft"
 
 ROLE_HINTS = {
     "detail": ("5223", "18204", "5183", "5218"),
@@ -175,7 +182,11 @@ def analyze_video_shots(video_path: Path, force: bool = False) -> list[Shot]:
     duration = float(nframes / fps) if nframes else 8.0
     cap.release()
 
-    moments = analyze_video(str(video_path), sample_fps=2.0)
+    moments = analyze_video(
+        str(video_path),
+        sample_fps=2.0,
+        use_mediapipe=EMOTION_MEDIAPIPE,
+    )
     motion = _probe_motion(video_path)
     roles = _hint_roles(video_path.name)
 

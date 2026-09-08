@@ -1,8 +1,8 @@
 {
   "blocker": null,
-  "cleared_at": "2026-09-08T13:22:08.459076+00:00",
-  "note": "V14_peak_hold_soft REJECT 8.58 vs V10 8.69",
-  "best_version": "V10_continuity_color",
-  "best_score": 8.69,
+  "cleared_at": "2026-09-08T13:33:32.122604+00:00",
+  "note": "V15_emotion_model_refresh KEEP 8.73 vs V10 8.69",
+  "best_version": "V15_emotion_model_refresh",
+  "best_score": 8.73,
   "renders_executed": true
 }

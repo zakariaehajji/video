@@ -317,7 +317,7 @@ class FaceBackend:
             min_face_detection_confidence=0.5,
             min_face_presence_confidence=0.5,
             min_tracking_confidence=0.5,
-            output_face_blendshapes=False,
+            output_face_blendshapes=True,
         )
         self._landmarker = FaceLandmarker.create_from_options(options)
 
@@ -347,19 +347,31 @@ class FaceBackend:
         return faces
 
     def smile_mediapipe(self, frame_bgr: np.ndarray) -> float:
+        """Smile from MediaPipe blendshapes (preferred) + landmark geometry."""
+        smile, _solemn = self.affect_mediapipe(frame_bgr)
+        return smile
+
+    def affect_mediapipe(self, frame_bgr: np.ndarray) -> tuple[float, float]:
+        """Return (smile, solemn) from Face Landmarker blendshapes + geometry.
+
+        Blendshapes give a real expression model beyond YuNet mouth-corner heuristics.
+        Solemn cues (frown / brow down / low smile) feed tear/reaction paths.
+        """
         if self._landmarker is None:
-            return 0.0
+            return 0.0, 0.0
         import mediapipe as mp
 
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         result = self._landmarker.detect(mp_image)
         if not result.face_landmarks:
-            return 0.0
+            return 0.0, 0.0
 
-        scores: list[float] = []
-        for landmarks in result.face_landmarks:
-            # Mouth corner / lip indices for blendshape-free geometry smile cue.
+        smile_scores: list[float] = []
+        solemn_scores: list[float] = []
+        blend_lists = result.face_blendshapes or [None] * len(result.face_landmarks)
+        for landmarks, blendshapes in zip(result.face_landmarks, blend_lists):
+            # Landmark geometry fallback (mouth corners / lip open).
             upper_lip = landmarks[13]
             lower_lip = landmarks[14]
             left = landmarks[61]
@@ -370,8 +382,36 @@ class FaceBackend:
             width_score = _clip01((mouth_w - 0.18) / 0.12)
             lift_score = _clip01((0.02 - corner_lift) / 0.05)
             open_score = _clip01((mouth_open - 0.015) / 0.04)
-            scores.append(_clip01(0.5 * width_score + 0.35 * lift_score + 0.15 * open_score))
-        return float(max(scores)) if scores else 0.0
+            geom = _clip01(0.5 * width_score + 0.35 * lift_score + 0.15 * open_score)
+
+            bs_smile = 0.0
+            bs_solemn = 0.0
+            if blendshapes is not None:
+                by_name = {b.category_name: float(b.score) for b in blendshapes}
+                left_s = by_name.get("mouthSmileLeft", 0.0)
+                right_s = by_name.get("mouthSmileRight", 0.0)
+                bs_smile = _clip01(0.55 * left_s + 0.45 * right_s)
+                frown = 0.5 * (
+                    by_name.get("mouthFrownLeft", 0.0) + by_name.get("mouthFrownRight", 0.0)
+                )
+                brow = 0.5 * (
+                    by_name.get("browDownLeft", 0.0) + by_name.get("browDownRight", 0.0)
+                )
+                brow_inner = by_name.get("browInnerUp", 0.0)
+                bs_solemn = _clip01(
+                    0.40 * frown + 0.30 * brow + 0.20 * brow_inner + 0.10 * (1.0 - bs_smile)
+                )
+
+            if blendshapes is not None:
+                smile_scores.append(_clip01(0.62 * bs_smile + 0.38 * geom))
+                solemn_scores.append(bs_solemn)
+            else:
+                smile_scores.append(geom)
+                solemn_scores.append(0.0)
+
+        smile = float(max(smile_scores)) if smile_scores else 0.0
+        solemn = float(max(solemn_scores)) if solemn_scores else 0.0
+        return smile, solemn
 
 
 def _face_smile(face: np.ndarray, face_gray: np.ndarray, frame_shape: tuple[int, ...]) -> float:
@@ -404,12 +444,20 @@ def analyze_frame(
             face_scores.append(_face_smile(face, roi, frame_bgr.shape))
         smile = float(max(face_scores))
 
+    mp_solemn = 0.0
     if backend.use_mediapipe and backend._landmarker is not None:
-        mp_smile = backend.smile_mediapipe(frame_bgr)
-        smile = _clip01(0.55 * smile + 0.45 * mp_smile)
+        mp_smile, mp_solemn = backend.affect_mediapipe(frame_bgr)
+        # Only blend when MediaPipe actually resolved a face; never crush YuNet with zeros.
+        if mp_smile > 0.02 or mp_solemn > 0.05:
+            blended = _clip01(0.42 * smile + 0.58 * mp_smile)
+            # Prefer the stronger cue so true smiles are not diluted by timid blendshapes.
+            smile = max(smile, blended) if smile >= 0.30 else blended
 
     kiss, hug = proximity_intimacy(faces, frame_bgr.shape)
     tears = tear_score(faces, gray, smile=smile, quality=quality)
+    # MediaPipe solemn expression reinforces tear/reaction beyond under-eye sheen alone.
+    if mp_solemn >= 0.28:
+        tears = _clip01(max(tears, 0.55 * tears + 0.45 * mp_solemn))
     reaction = reaction_score(smile, face_count, quality, kiss=kiss, tears=tears)
 
     # Favor smiles, intimacy (kiss/hug), tears/reactions, visible faces, usable frames.

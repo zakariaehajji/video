@@ -119,5 +119,16 @@
     "returncode": 1,
     "score": 8.58,
     "verdict": "REJECT"
+  },
+  {
+    "id": "V15_emotion_model_refresh",
+    "script": "autolab/run_v15_emotion_refresh.py",
+    "status": "done",
+    "priority": 12,
+    "hypothesis": "MediaPipe blendshape smile/solemn cues refresh emotion beyond YuNet/proximity heuristics",
+    "depends_on": "V10_continuity_color",
+    "returncode": 0,
+    "score": 8.73,
+    "verdict": "KEEP"
   }
 ]
