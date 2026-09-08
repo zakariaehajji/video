@@ -12,6 +12,12 @@ from wedding_v3.shots import Shot
 # V5 experiment gate: set WEDDING_V3_PACE_HOLD=1 to enforce min shot holds.
 # Default off so V4_xfade and baseline V3 behavior stay comparable.
 PACE_HOLD_FLOOR = os.environ.get("WEDDING_V3_PACE_HOLD", "0").strip() in ("1", "true", "yes")
+# V11: linger on musical peak / emotion climaxes (do not shorten peak holds).
+PEAK_HOLD = os.environ.get("WEDDING_V3_PEAK_HOLD", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 
 ARC_BY_SECTION = {
@@ -104,7 +110,16 @@ def plan_story(
         if energy > 0.7:
             base *= 0.9
         if label == "peak":
-            if PACE_HOLD_FLOOR:
+            if PEAK_HOLD and PACE_HOLD_FLOOR:
+                # V11: reverse V5 peak-shortening — fewer, longer emotion holds on climax.
+                # Target ~1.7–2.1s so peak_emo moments breathe without mean_d > 2.2.
+                if style == "emotional":
+                    base = 2.05
+                    min_dur = 1.45
+                else:
+                    base = 1.85
+                    min_dur = 1.25
+            elif PACE_HOLD_FLOOR:
                 base = min(base, 1.55 if style == "emotional" else 1.35)
                 min_dur = min(min_dur, 1.0 if style == "emotional" else 0.85)
             else:

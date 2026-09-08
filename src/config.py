@@ -17,9 +17,9 @@ import os
 # ------------------ UI Remembered Inputs ------------------ #
 # These are saved automatically by the app when you change sidebar fields.
 
-VIDEO_PATH = "resource/video/wedding_web/wedding_36171.mp4"
-AUDIO_PATH = "resource/audio/wedding_web/music_698.mp3"
-INSTRUCTION = "Create a romantic wedding highlight film with soft emotional pacing, smiles, rings, and couple moments."
+VIDEO_PATH = "resource/video/videoplayback.mp4"
+AUDIO_PATH = "resource/audio/babydoll.mp3"
+INSTRUCTION = ""
 SRT_PATH = ""
 
 
@@ -383,7 +383,7 @@ FACE_QUALITY_CHECK_METHOD = "vlm"
 
 # ------------------ Protagonist Presence Constraints ------------------ #
 
-MAIN_CHARACTER_NAME = "the couple"
+MAIN_CHARACTER_NAME = ""
 # Main character / target subject name (comma-separated for multiple roles).
 # This is one of the highest-impact parameters in object mode.
 

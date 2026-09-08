@@ -18,6 +18,12 @@ COLOR_CONTINUITY = os.environ.get("WEDDING_V3_COLOR_CONTINUITY", "0").strip().lo
     "true",
     "yes",
 )
+# V11: duration-weight emotion so lingering on climaxes is reflected in score.
+PEAK_HOLD = os.environ.get("WEDDING_V3_PEAK_HOLD", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 
 @dataclass
@@ -54,12 +60,24 @@ def critique_plan(picks: list[RankedPick], profile: str = "") -> Critique:
 
     tech = sum(p.shot.technical_quality for p in picks) / n
     visual = sum(p.shot.cinematic_quality for p in picks) / n
-    emo = sum(p.shot.emotion_score for p in picks) / n
+    if PEAK_HOLD:
+        # Linger on emotional climaxes should raise perceived emotion (duration-weighted).
+        tw = sum(max(0.35, float(p.beat.dur)) for p in picks) or float(n)
+        emo = sum(p.shot.emotion_score * max(0.35, float(p.beat.dur)) for p in picks) / tw
+    else:
+        emo = sum(p.shot.emotion_score for p in picks) / n
     peak_slots = [p for p in picks if p.beat.is_peak]
-    peak_emo = (
-        sum(p.shot.emotional_peak_score for p in peak_slots) / len(peak_slots)
-        if peak_slots else emo
-    )
+    if peak_slots and PEAK_HOLD:
+        pw = sum(max(0.35, float(p.beat.dur)) for p in peak_slots) or float(len(peak_slots))
+        peak_emo = (
+            sum(p.shot.emotional_peak_score * max(0.35, float(p.beat.dur)) for p in peak_slots)
+            / pw
+        )
+    else:
+        peak_emo = (
+            sum(p.shot.emotional_peak_score for p in peak_slots) / len(peak_slots)
+            if peak_slots else emo
+        )
 
     videos = [p.shot.video for p in picks]
     uniq = len(set(videos))

@@ -21,6 +21,12 @@ COLOR_CONTINUITY = os.environ.get("WEDDING_V3_COLOR_CONTINUITY", "0").strip().lo
     "true",
     "yes",
 )
+# V11: after allocate, linger on strongest peak-emotion shots (steal from weak peaks).
+PEAK_HOLD = os.environ.get("WEDDING_V3_PEAK_HOLD", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 WEIGHT_PROFILES = {
     "A_emotion": {
@@ -329,4 +335,148 @@ def allocate(
             recent_videos.pop(0)
             recent_ids.pop(0)
             recent_shots.pop(0)
+    if PEAK_HOLD:
+        picks = polish_peak_emotion_holds(picks)
     return picks
+
+
+def _emotion_intensity(shot: Shot) -> float:
+    kiss = float(getattr(shot, "kiss", 0.0) or 0.0)
+    hug = float(getattr(shot, "hug", 0.0) or 0.0)
+    tears = float(getattr(shot, "tears", 0.0) or 0.0)
+    reaction = float(getattr(shot, "reaction", 0.0) or 0.0)
+    return max(
+        float(shot.emotional_peak_score or 0.0),
+        float(shot.emotion_score or 0.0),
+        kiss,
+        hug * 0.95,
+        tears,
+        reaction * 0.85,
+        float(shot.smile or 0.0) * 0.7,
+    )
+
+
+def polish_peak_emotion_holds(
+    picks: list[RankedPick],
+    top_k: int = 5,
+    max_extend: float = 0.55,
+    min_keep: float = 1.05,
+) -> list[RankedPick]:
+    """Steal duration from weak peak cuts; linger on strongest emotion climaxes.
+
+    Keeps contiguous timeline and total film length (music alignment preserved).
+    """
+    n = len(picks)
+    if n < 5:
+        return picks
+    peak_idxs = [i for i, p in enumerate(picks) if p.beat.is_peak or p.beat.section == "peak"]
+    if len(peak_idxs) < 2:
+        return picks
+
+    ranked = sorted(peak_idxs, key=lambda i: _emotion_intensity(picks[i].shot), reverse=True)
+    climaxes = ranked[: min(top_k, max(2, len(peak_idxs) // 3))]
+    climax_set = set(climaxes)
+
+    extensions: dict[int, float] = {}
+    for i in climaxes:
+        cur = float(picks[i].beat.dur)
+        avail = float(picks[i].shot.duration)
+        # Linger ~1.7–2.1s on true emotion peaks; respect source length.
+        target = min(2.15, max(cur + 0.30, 1.70), avail * 0.92, cur + max_extend)
+        if target > cur + 0.08:
+            extensions[i] = target - cur
+    need = sum(extensions.values())
+    if need < 0.12:
+        return picks
+
+    # Donors: weakest emotion among non-climax (prefer peak filler over bookends).
+    donors = [i for i in range(n) if i not in climax_set and i not in (0, n - 1)]
+    donors.sort(key=lambda i: (_emotion_intensity(picks[i].shot), -float(picks[i].beat.dur)))
+
+    shrinks: dict[int, float] = {}
+    remaining = need
+    for i in donors:
+        if remaining <= 0.02:
+            break
+        cur = float(picks[i].beat.dur)
+        floor = min_keep
+        # Never shrink a strong intimacy beat below comfort.
+        if _emotion_intensity(picks[i].shot) >= 0.55:
+            floor = max(floor, 1.25)
+        can = max(0.0, cur - floor)
+        give = min(can, remaining, 0.50)
+        if give >= 0.06:
+            shrinks[i] = give
+            remaining -= give
+
+    gained = need - remaining
+    if gained < 0.10:
+        return picks
+    if remaining > 0.05:
+        scale = gained / need
+        extensions = {i: e * scale for i, e in extensions.items()}
+
+    # Rebuild contiguous beats from original start.
+    t0 = float(picks[0].beat.t0)
+    new_picks: list[RankedPick] = []
+    for i, p in enumerate(picks):
+        dur = float(p.beat.dur) + extensions.get(i, 0.0) - shrinks.get(i, 0.0)
+        dur = max(0.7, round(dur, 3))
+        t1 = round(t0 + dur, 3)
+        slow = p.beat.want_slowmo
+        reasons = list(p.reasons)
+        if i in climax_set and extensions.get(i, 0.0) >= 0.12:
+            reasons = reasons + ["peak-emotion-hold"]
+            # Soft slowmo on strongest climaxes if couple/portrait.
+            if (
+                p.beat.role in ("couple", "portrait")
+                and _emotion_intensity(p.shot) >= 0.55
+                and p.shot.emotion_score >= 0.35
+            ):
+                slow = True
+        beat = PlannedBeat(
+            t0=round(t0, 3),
+            t1=t1,
+            dur=round(t1 - t0, 3),
+            section=p.beat.section,
+            role=p.beat.role,
+            energy=p.beat.energy,
+            want_slowmo=slow,
+            want_xfade=p.beat.want_xfade and not p.beat.is_peak,
+            is_peak=p.beat.is_peak,
+        )
+        new_picks.append(RankedPick(beat=beat, shot=p.shot, score=p.score, reasons=reasons))
+        t0 = t1
+
+    # Cap slowmo density (critic penalizes > n//3; V5 sweet spot is 1..n//5).
+    cap = max(2, len(new_picks) // 5)
+    slow_idxs = [i for i, p in enumerate(new_picks) if p.beat.want_slowmo]
+    if len(slow_idxs) > cap:
+        # Keep climax slowmos first, then earliest.
+        def _slow_keep_key(i: int) -> tuple:
+            return (
+                0 if i in climax_set else 1,
+                -_emotion_intensity(new_picks[i].shot),
+                i,
+            )
+
+        keep = set(sorted(slow_idxs, key=_slow_keep_key)[:cap])
+        trimmed: list[RankedPick] = []
+        for i, p in enumerate(new_picks):
+            if p.beat.want_slowmo and i not in keep:
+                beat = PlannedBeat(
+                    t0=p.beat.t0,
+                    t1=p.beat.t1,
+                    dur=p.beat.dur,
+                    section=p.beat.section,
+                    role=p.beat.role,
+                    energy=p.beat.energy,
+                    want_slowmo=False,
+                    want_xfade=p.beat.want_xfade,
+                    is_peak=p.beat.is_peak,
+                )
+                trimmed.append(RankedPick(beat=beat, shot=p.shot, score=p.score, reasons=p.reasons))
+            else:
+                trimmed.append(p)
+        new_picks = trimmed
+    return new_picks
