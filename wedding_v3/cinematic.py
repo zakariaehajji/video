@@ -16,6 +16,12 @@ COLOR_MATCH = os.environ.get("WEDDING_V3_COLOR_MATCH", "0").strip().lower() in (
     "true",
     "yes",
 )
+# V24: slightly stronger adjacent exposure bridge (paired with milder ranking continuity).
+CONTINUITY_SOFT_V2 = os.environ.get("WEDDING_V3_CONTINUITY_SOFT_V2", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # Target mid-tone warm film look (L, a, b) — soft wedding grade.
 _FILM_L, _FILM_A, _FILM_B = 52.0, 4.0, 10.0
@@ -71,7 +77,14 @@ def _grade(role: str, shot=None, prev_shot=None) -> str:
     # Soft bridge toward previous clip exposure (reduces cut jumps).
     if prev_shot is not None:
         pL = float(getattr(prev_shot, "color_l", L) or L)
-        bright += _clamp((pL - L) / 320.0, -0.035, 0.035)
+        # V24: slightly stronger adjacent L bridge when ranking continuity is milder.
+        denom = 260.0 if CONTINUITY_SOFT_V2 else 320.0
+        lim = 0.045 if CONTINUITY_SOFT_V2 else 0.035
+        bright += _clamp((pL - L) / denom, -lim, lim)
+        if CONTINUITY_SOFT_V2:
+            pb = float(getattr(prev_shot, "color_b", b) or b)
+            # Tiny warm/cool bridge so harsh palette cuts grade toward neighbors.
+            sat += _clamp((pb - b) / 220.0, -0.03, 0.03)
 
     contrast = _clamp(contrast, 1.02, 1.22)
     sat = _clamp(sat, 0.95, 1.28)

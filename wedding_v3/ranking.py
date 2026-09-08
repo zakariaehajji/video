@@ -33,6 +33,13 @@ COLOR_CONTINUITY = os.environ.get("WEDDING_V3_COLOR_CONTINUITY", "0").strip().lo
     "true",
     "yes",
 )
+# V24: milder adjacent color continuity — punish harsh jumps, not dominate ranking;
+# hard consecutive-source skip (V9 failure mode) when a near-tie alternate exists.
+CONTINUITY_SOFT_V2 = os.environ.get("WEDDING_V3_CONTINUITY_SOFT_V2", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 # V11: after allocate, linger on strongest peak-emotion shots (steal from weak peaks).
 PEAK_HOLD = os.environ.get("WEDDING_V3_PEAK_HOLD", "0").strip().lower() in (
     "1",
@@ -167,7 +174,12 @@ def _effective_weights(profile: str) -> dict[str, float]:
         # Milder than V9: nudge CQ without starving variety/continuity (V10 strengths).
         w["visual"] = min(0.20, w["visual"] + 0.03)
         w["variety"] = max(0.06, w["variety"])  # do not cut variety budget
-    if COLOR_CONTINUITY:
+    if COLOR_CONTINUITY and CONTINUITY_SOFT_V2:
+        # Milder than V10: small continuity nudge; keep visual/emotion budgets.
+        w["continuity"] = min(0.12, w["continuity"] + 0.02)
+        w["variety"] = max(0.06, w["variety"])
+        w["visual"] = max(0.14, w["visual"])
+    elif COLOR_CONTINUITY:
         # More mass on continuity; do not starve emotion/story (V8 strengths).
         w["continuity"] = min(0.16, w["continuity"] + 0.05)
         w["variety"] = max(0.05, w["variety"] - 0.01)
@@ -183,6 +195,7 @@ def _effective_weights(profile: str) -> dict[str, float]:
         or VISUAL_SOFT
         or VISUAL_SOFT_V2
         or COLOR_CONTINUITY
+        or CONTINUITY_SOFT_V2
         or MUSIC_SECTION_ROLES
     ):
         total = sum(w.values())
@@ -319,6 +332,7 @@ def score_shot(
             continuity = 0.85
 
     # V10: color match to previous pick across different sources (stock-footage fix).
+    # V24 soft: milder blend — mainly punish harsh jumps so emotion/CQ can still win.
     if COLOR_CONTINUITY and recent_shots:
         prev = recent_shots[-1]
         dist = color_distance(shot, prev)
@@ -326,7 +340,21 @@ def score_shot(
         color_fit = max(0.12, 1.0 - min(1.15, dist * 1.35))
         if shot.video in recent_videos[-1:]:
             # Still punish consecutive same source, but mild color can't override it.
-            continuity = min(continuity, 0.22 + 0.15 * color_fit)
+            if CONTINUITY_SOFT_V2:
+                continuity = min(continuity, 0.16 + 0.12 * color_fit)
+            else:
+                continuity = min(continuity, 0.22 + 0.15 * color_fit)
+        elif CONTINUITY_SOFT_V2:
+            # Milder palette blend than V10 (0.65→0.40); harsh jumps get extra bite.
+            continuity = 0.60 * continuity + 0.40 * color_fit
+            if dist >= 0.50:
+                reasons.append("color-jump")
+                continuity *= 0.72
+            elif color_fit >= 0.78:
+                reasons.append("color-match-soft")
+            elif color_fit <= 0.30:
+                reasons.append("color-jump")
+                continuity *= 0.88
         else:
             # Blend role continuity with palette similarity.
             continuity = 0.35 * continuity + 0.65 * color_fit
@@ -341,10 +369,20 @@ def score_shot(
         variety = 0.0
         reasons.append("exact-reuse")
     elif shot.video in recent_videos[-3:]:
-        variety = 0.30 if VISUAL_BOOST else (0.40 if COLOR_CONTINUITY else 0.45)
+        if VISUAL_BOOST:
+            variety = 0.30
+        elif CONTINUITY_SOFT_V2:
+            variety = 0.42  # slightly less harsh than V10 so sources can rotate
+        elif COLOR_CONTINUITY:
+            variety = 0.40
+        else:
+            variety = 0.45
         reasons.append("recent-video")
     elif VISUAL_BOOST and recent_videos.count(shot.video) >= 2:
         variety = 0.55
+        reasons.append("source-overuse")
+    elif CONTINUITY_SOFT_V2 and recent_videos.count(shot.video) >= 2:
+        variety = 0.52
         reasons.append("source-overuse")
     elif COLOR_CONTINUITY and recent_videos.count(shot.video) >= 2:
         variety = 0.50
@@ -616,20 +654,34 @@ def score_shot(
             total *= 0.78
             reasons.append("softv2-consec-guard")
     # V10: mild warmth preference (wedding film look) without hard filtering.
+    # V24 soft: gentler cool penalty / warmth nudge so CQ/emotion stay primary.
     if COLOR_CONTINUITY:
         warmth = float(getattr(shot, "color_b", 0.0) or 0.0)  # +b = yellow/warm
-        if warmth < -4.0:
-            total *= 0.94
-            reasons.append("cool-palette")
-        elif warmth >= 6.0:
-            total *= 1.03
-            reasons.append("warm-palette")
-        if beat.section in ("intro", "outro"):
-            # Bookends: avoid extreme brightness jumps vs film mid-tones.
-            L = float(getattr(shot, "color_l", 50.0) or 50.0)
-            if L < 28.0 or L > 78.0:
-                total *= 0.90
-                reasons.append("bookend-exposure")
+        if CONTINUITY_SOFT_V2:
+            if warmth < -6.0:
+                total *= 0.96
+                reasons.append("cool-palette-soft")
+            elif warmth >= 8.0:
+                total *= 1.015
+                reasons.append("warm-palette-soft")
+            if beat.section in ("intro", "outro"):
+                L = float(getattr(shot, "color_l", 50.0) or 50.0)
+                if L < 22.0 or L > 82.0:
+                    total *= 0.93
+                    reasons.append("bookend-exposure-soft")
+        else:
+            if warmth < -4.0:
+                total *= 0.94
+                reasons.append("cool-palette")
+            elif warmth >= 6.0:
+                total *= 1.03
+                reasons.append("warm-palette")
+            if beat.section in ("intro", "outro"):
+                # Bookends: avoid extreme brightness jumps vs film mid-tones.
+                L = float(getattr(shot, "color_l", 50.0) or 50.0)
+                if L < 28.0 or L > 78.0:
+                    total *= 0.90
+                    reasons.append("bookend-exposure")
     if story >= 0.99:
         reasons.append(f"role:{beat.role}")
     return float(total), reasons
@@ -674,16 +726,41 @@ def allocate(
                 scored.append((sc, s, reasons))
         scored.sort(key=lambda x: x[0], reverse=True)
         sc, s, reasons = scored[0]
-        # V18: hard consecutive-source skip when a near-tie alternate exists.
+        # V18 / V24: hard consecutive-source skip when a near-tie alternate exists.
         if (
-            VISUAL_SOFT_V2
+            (VISUAL_SOFT_V2 or CONTINUITY_SOFT_V2)
             and recent_videos
             and s.video == recent_videos[-1]
             and len(scored) > 1
         ):
             alt_sc, alt_s, alt_reasons = scored[1]
-            if alt_s.video != s.video and alt_sc >= sc * 0.92:
-                sc, s, reasons = alt_sc, alt_s, list(alt_reasons) + ["softv2-hard-consec-skip"]
+            thresh = 0.90 if CONTINUITY_SOFT_V2 and not VISUAL_SOFT_V2 else 0.92
+            tag = (
+                "contsoftv2-hard-consec-skip"
+                if CONTINUITY_SOFT_V2 and not VISUAL_SOFT_V2
+                else "softv2-hard-consec-skip"
+            )
+            if alt_s.video != s.video and alt_sc >= sc * thresh:
+                sc, s, reasons = alt_sc, alt_s, list(alt_reasons) + [tag]
+        # V24: if top pick is a harsh color jump vs previous, prefer near-tie alternate.
+        if (
+            CONTINUITY_SOFT_V2
+            and COLOR_CONTINUITY
+            and recent_shots
+            and len(scored) > 1
+        ):
+            prev = recent_shots[-1]
+            if color_distance(s, prev) >= 0.55:
+                for alt_sc, alt_s, alt_reasons in scored[1:6]:
+                    if alt_s.video == s.video:
+                        continue
+                    if color_distance(alt_s, prev) < 0.45 and alt_sc >= sc * 0.88:
+                        sc, s, reasons = (
+                            alt_sc,
+                            alt_s,
+                            list(alt_reasons) + ["contsoftv2-harsh-jump-skip"],
+                        )
+                        break
         # Center extract around best_t when possible
         pick = RankedPick(beat=beat, shot=s, score=sc, reasons=reasons)
         picks.append(pick)

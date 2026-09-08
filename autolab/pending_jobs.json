@@ -218,5 +218,16 @@
     "returncode": 1,
     "score": 8.77,
     "verdict": "REJECT"
+  },
+  {
+    "id": "V24_continuity_soft_v2",
+    "script": "autolab/run_v24_continuity_soft_v2.py",
+    "status": "done",
+    "priority": 20,
+    "hypothesis": "Milder adjacent color continuity without V9 source-repeat",
+    "depends_on": "V21_reaction_cutaways_v2",
+    "returncode": 1,
+    "score": 8.81,
+    "verdict": "REJECT"
   }
 ]
