@@ -100,6 +100,13 @@ KISS_HOLD = os.environ.get("WEDDING_V3_KISS_HOLD", "0").strip().lower() in (
     "true",
     "yes",
 )
+# V25: force top pool kiss into peak climax even when a weaker kiss is already present.
+# V23 ensure never fired (peak_kiss>=0.38 gate); hold alone REJECT vs V21.
+KISS_ENSURE_SWAP = os.environ.get("WEDDING_V3_KISS_ENSURE_SWAP", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # Montage-craft heuristics (always on; modest deltas — does not replace weight profiles).
 CRAFT_SHOT_HEURISTICS = os.environ.get("WEDDING_V3_CRAFT_SHOTS", "1").strip().lower() not in (
@@ -799,6 +806,9 @@ def allocate(
             protect_top=2,
             min_var=0.05,
         )
+    # V25 ensure-swap before hold so a forced climax kiss can then linger if both on.
+    if KISS_ENSURE_SWAP:
+        picks = polish_kiss_ensure_swap(picks, shots)
     # Kiss hold last so face/reaction swaps do not undo climax duration.
     if KISS_HOLD:
         picks = polish_kiss_hold(picks, shots)
@@ -1677,6 +1687,123 @@ def _kiss_climax_score(shot: Shot) -> float:
     if shot.shot_type in ("couple", "portrait") or shot.composition == "close":
         score += 0.03
     return float(score)
+
+
+def polish_kiss_ensure_swap(
+    picks: list[RankedPick],
+    shots: list[Shot] | None = None,
+    kiss_floor: float = 0.36,
+    max_swaps: int = 2,
+) -> list[RankedPick]:
+    """Force top pool kiss climax into peak when hold-alone ensure is insufficient.
+
+    V23's ensure only ran when peak_kiss < 0.38, so unused stronger kiss+hug climaxes
+    (e.g. wedding_40601_005) never entered. This swaps the best unused pool kisses into
+    the late-peak climax window, without extending durations (hold is separate).
+    """
+    if not shots or len(picks) < 6 or max_swaps < 1:
+        return picks
+
+    out = list(picks)
+    peak_idxs = [i for i, p in enumerate(out) if p.beat.is_peak or p.beat.section == "peak"]
+    if len(peak_idxs) < 3:
+        return picks
+
+    used = {p.shot.id for p in out}
+    pool_cands = sorted(
+        [
+            s
+            for s in shots
+            if float(getattr(s, "kiss", 0.0) or 0.0) >= kiss_floor
+            and int(getattr(s, "faces", 0) or 0) >= 1
+            and float(s.duration) >= 0.85
+        ],
+        key=_kiss_climax_score,
+        reverse=True,
+    )
+    if not pool_cands:
+        return picks
+
+    # Prefer unused top climaxes; allow one upgrade of a weaker in-peak kiss.
+    unused = [s for s in pool_cands if s.id not in used]
+    if not unused:
+        return picks
+
+    peak_best = max((_kiss_climax_score(out[i].shot) for i in peak_idxs), default=0.0)
+    # Climax window: late-middle of peak (ceremony kiss beat), not bookends.
+    if len(peak_idxs) >= 6:
+        climax_slots = peak_idxs[len(peak_idxs) // 2 : -1]
+    else:
+        climax_slots = peak_idxs[1:-1] if len(peak_idxs) >= 4 else list(peak_idxs)
+
+    def _target_key(i: int) -> tuple:
+        cur = out[i]
+        reasons = cur.reasons or []
+        return (
+            1 if "reaction-cutaway-forced" in reasons else 0,
+            1 if "kiss-ensure-swap" in reasons else 0,
+            _kiss_climax_score(cur.shot),
+            _emotion_intensity(cur.shot),
+        )
+
+    swaps = 0
+    for cand in unused:
+        if swaps >= max_swaps:
+            break
+        cand_score = _kiss_climax_score(cand)
+        # First swap: always try if unused cand is competitive with peak best.
+        # Later swaps: only if clearly stronger than the displaced target.
+        if swaps == 0 and cand_score + 0.02 < peak_best * 0.92:
+            # Still allow if peak's best kiss is not in climax window.
+            climax_best = max((_kiss_climax_score(out[i].shot) for i in climax_slots), default=0.0)
+            if cand_score <= climax_best + 0.01:
+                continue
+
+        targets = sorted(climax_slots, key=_target_key)
+        placed = False
+        for ti in targets:
+            cur = out[ti]
+            if "reaction-cutaway-forced" in (cur.reasons or []):
+                continue
+            if "kiss-ensure-swap" in (cur.reasons or []):
+                continue
+            cur_score = _kiss_climax_score(cur.shot)
+            cur_kiss = float(getattr(cur.shot, "kiss", 0.0) or 0.0)
+            # Never displace a strictly better kiss climax already in place.
+            if cur_kiss >= 0.40 and cur_score >= cand_score - 0.01:
+                continue
+            if cand.duration + 0.05 < min(0.7, cur.beat.dur * 0.55):
+                continue
+            reasons = list(cur.reasons) + ["kiss-ensure-swap"]
+            if cand_score >= peak_best - 0.02:
+                reasons.append("kiss-ensure-top")
+            out[ti] = RankedPick(
+                beat=cur.beat, shot=cand, score=cur.score, reasons=reasons
+            )
+            used.add(cand.id)
+            swaps += 1
+            placed = True
+            peak_best = max(peak_best, cand_score)
+            break
+        if not placed and swaps == 0:
+            # Fallback: replace weakest mid-peak non-forced shot.
+            mid = peak_idxs[1:-1] if len(peak_idxs) >= 4 else list(peak_idxs)
+            for ti in sorted(mid, key=_target_key):
+                cur = out[ti]
+                if "reaction-cutaway-forced" in (cur.reasons or []):
+                    continue
+                if float(getattr(cur.shot, "kiss", 0.0) or 0.0) >= 0.40:
+                    continue
+                if cand.duration + 0.05 < min(0.7, cur.beat.dur * 0.55):
+                    continue
+                reasons = list(cur.reasons) + ["kiss-ensure-swap", "kiss-ensure-fallback"]
+                out[ti] = RankedPick(
+                    beat=cur.beat, shot=cand, score=cur.score, reasons=reasons
+                )
+                swaps += 1
+                break
+
+    return out
 
 
 def polish_kiss_hold(

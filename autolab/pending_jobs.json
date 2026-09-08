@@ -229,5 +229,17 @@
     "returncode": 1,
     "score": 8.81,
     "verdict": "REJECT"
+  },
+  {
+    "id": "V25_kiss_ensure_swap",
+    "script": "autolab/run_v25_kiss_ensure_swap.py",
+    "status": "done",
+    "priority": 21,
+    "hypothesis": "Force top unused pool kiss into peak climax without V23 hold",
+    "depends_on": "V21_reaction_cutaways_v2",
+    "returncode": 1,
+    "score": 8.81,
+    "verdict": "REJECT",
+    "ensure_ok": true
   }
 ]
