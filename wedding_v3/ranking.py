@@ -33,11 +33,24 @@ PEAK_HOLD = os.environ.get("WEDDING_V3_PEAK_HOLD", "0").strip().lower() in (
     "true",
     "yes",
 )
+# V14: milder peak linger (+0.25s, top-3 only) — no aggressive variance steal.
+PEAK_HOLD_SOFT = os.environ.get("WEDDING_V3_PEAK_HOLD_SOFT", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 # V12: prefer shots that match music-section story grammar.
 MUSIC_SECTION_ROLES = os.environ.get("WEDDING_V3_MUSIC_SECTION_ROLES", "0").strip().lower() in (
     "1",
     "true",
     "yes",
+)
+
+# Montage-craft heuristics (always on; modest deltas — does not replace weight profiles).
+CRAFT_SHOT_HEURISTICS = os.environ.get("WEDDING_V3_CRAFT_SHOTS", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
 )
 
 # How well a planned role / shot type fits each music section (wedding film grammar).
@@ -267,6 +280,27 @@ def score_shot(
         peak = min(1.0, peak + 0.10)
         reasons.append("tear-reaction")
 
+    # Craft curriculum: prefer sharp faces, clean exposure, stable intimate framing.
+    if CRAFT_SHOT_HEURISTICS:
+        tq = float(getattr(shot, "technical_quality", 0.0) or 0.0)
+        if beat.role in ("portrait", "couple") and shot.faces >= 1 and sharpness >= 0.70:
+            emotion = min(1.0, emotion + 0.07)
+            visual = min(1.0, visual + 0.05)
+            reasons.append("craft-sharp-face")
+        if beat.is_peak and shot.faces < 1:
+            peak *= 0.82
+            emotion *= 0.90
+            reasons.append("craft-peak-no-face")
+        if beat.is_peak and sharpness < 0.45:
+            peak *= 0.88
+            reasons.append("craft-peak-soft")
+        if beat.section in ("intro", "outro") and tq >= 0.75 and shot.camera_motion == "static":
+            visual = min(1.0, visual + 0.04)
+            reasons.append("craft-stable-bookend")
+        if beat.role == "detail" and shot.faces == 0 and tq >= 0.70:
+            story = min(1.0, story + 0.06)
+            reasons.append("craft-clean-detail")
+
     # V12: music-section ↔ story-role / shot-type grammar (selection bias, modest deltas).
     if MUSIC_SECTION_ROLES:
         role_fit = _section_role_fit(beat.section, beat.role)
@@ -430,7 +464,11 @@ def allocate(
             recent_videos.pop(0)
             recent_ids.pop(0)
             recent_shots.pop(0)
-    if PEAK_HOLD:
+    if PEAK_HOLD_SOFT:
+        picks = polish_peak_emotion_holds(
+            picks, top_k=3, max_extend=0.25, min_keep=1.00, soft=True
+        )
+    elif PEAK_HOLD:
         picks = polish_peak_emotion_holds(picks)
     return picks
 
@@ -456,11 +494,13 @@ def polish_peak_emotion_holds(
     top_k: int = 4,
     max_extend: float = 0.70,
     min_keep: float = 0.95,
+    soft: bool = False,
 ) -> list[RankedPick]:
     """Steal duration from weak peak cuts; linger on strongest emotion climaxes.
 
     Keeps contiguous timeline and total film length (music alignment preserved).
     Creates intentional short-filler / long-climax contrast (wedding pacing).
+    soft=True: smaller +0.25s top-k holds, no variance-boost steal.
     """
     n = len(picks)
     if n < 5:
@@ -477,12 +517,16 @@ def polish_peak_emotion_holds(
     for i in climaxes:
         cur = float(picks[i].beat.dur)
         avail = float(picks[i].shot.duration)
-        # Linger ~1.85–2.25s on true emotion peaks; respect source length.
-        target = min(2.25, max(cur + 0.35, 1.85), avail * 0.92, cur + max_extend)
-        if target > cur + 0.08:
+        if soft:
+            # Mild linger only — respect max_extend hard cap (+0.25s typical).
+            target = min(avail * 0.92, cur + max_extend)
+        else:
+            # Linger ~1.85–2.25s on true emotion peaks; respect source length.
+            target = min(2.25, max(cur + 0.35, 1.85), avail * 0.92, cur + max_extend)
+        if target > cur + (0.05 if soft else 0.08):
             extensions[i] = target - cur
     need = sum(extensions.values())
-    if need < 0.12:
+    if need < (0.08 if soft else 0.12):
         return picks
 
     # Donors: weakest emotion among non-climax (prefer peak filler over bookends).
@@ -491,6 +535,7 @@ def polish_peak_emotion_holds(
 
     shrinks: dict[int, float] = {}
     remaining = need
+    max_give = 0.28 if soft else 0.60
     for i in donors:
         if remaining <= 0.02:
             break
@@ -501,15 +546,15 @@ def polish_peak_emotion_holds(
             floor = max(floor, 1.20)
         # Peak-section filler can go shorter to fund climax breathes.
         if picks[i].beat.section == "peak" and _emotion_intensity(picks[i].shot) < 0.52:
-            floor = min(floor, 0.90)
+            floor = min(floor, 0.95 if soft else 0.90)
         can = max(0.0, cur - floor)
-        give = min(can, remaining, 0.60)
-        if give >= 0.06:
+        give = min(can, remaining, max_give)
+        if give >= (0.04 if soft else 0.06):
             shrinks[i] = give
             remaining -= give
 
     gained = need - remaining
-    if gained < 0.10:
+    if gained < (0.06 if soft else 0.10):
         return picks
     if remaining > 0.05:
         scale = gained / need
@@ -517,28 +562,33 @@ def polish_peak_emotion_holds(
 
     # If duration variance would flatten below critic pacing floor (~0.05), steal a
     # little more from weakest mid cuts into the top climax (real short/long contrast).
-    trial = [
-        float(picks[i].beat.dur) + extensions.get(i, 0.0) - shrinks.get(i, 0.0)
-        for i in range(n)
-    ]
-    mean_t = sum(trial) / n
-    var_t = sum((d - mean_t) ** 2 for d in trial) / n
-    if var_t < 0.055 and climaxes:
-        top = climaxes[0]
-        extra_donors = sorted(
-            [i for i in donors if i not in shrinks and i != top],
-            key=lambda i: _emotion_intensity(picks[i].shot),
-        )
-        bump = 0.0
-        for i in extra_donors[:4]:
-            cur = trial[i]
-            floor = 0.90 if picks[i].beat.section == "peak" else 1.00
-            give = min(0.28, max(0.0, cur - floor))
-            if give >= 0.08:
-                shrinks[i] = shrinks.get(i, 0.0) + give
-                bump += give
-        if bump >= 0.10:
-            extensions[top] = extensions.get(top, 0.0) + bump
+    # Soft mode skips this — it can exceed the mild +0.25s intent.
+    if not soft:
+        trial = [
+            float(picks[i].beat.dur) + extensions.get(i, 0.0) - shrinks.get(i, 0.0)
+            for i in range(n)
+        ]
+        mean_t = sum(trial) / n
+        var_t = sum((d - mean_t) ** 2 for d in trial) / n
+        if var_t < 0.055 and climaxes:
+            top = climaxes[0]
+            extra_donors = sorted(
+                [i for i in donors if i not in shrinks and i != top],
+                key=lambda i: _emotion_intensity(picks[i].shot),
+            )
+            bump = 0.0
+            for i in extra_donors[:4]:
+                cur = trial[i]
+                floor = 0.90 if picks[i].beat.section == "peak" else 1.00
+                give = min(0.28, max(0.0, cur - floor))
+                if give >= 0.08:
+                    shrinks[i] = shrinks.get(i, 0.0) + give
+                    bump += give
+            if bump >= 0.10:
+                extensions[top] = extensions.get(top, 0.0) + bump
+
+    hold_tag = "peak-emotion-hold-soft" if soft else "peak-emotion-hold"
+    hold_mark = 0.08 if soft else 0.12
 
     # Rebuild contiguous beats from original start.
     t0 = float(picks[0].beat.t0)
@@ -549,11 +599,12 @@ def polish_peak_emotion_holds(
         t1 = round(t0 + dur, 3)
         slow = p.beat.want_slowmo
         reasons = list(p.reasons)
-        if i in climax_set and extensions.get(i, 0.0) >= 0.12:
-            reasons = reasons + ["peak-emotion-hold"]
-            # Soft slowmo on strongest climaxes if couple/portrait.
+        if i in climax_set and extensions.get(i, 0.0) >= hold_mark:
+            reasons = reasons + [hold_tag]
+            # Soft slowmo on strongest climaxes if couple/portrait (V11 only).
             if (
-                p.beat.role in ("couple", "portrait")
+                not soft
+                and p.beat.role in ("couple", "portrait")
                 and _emotion_intensity(p.shot) >= 0.55
                 and p.shot.emotion_score >= 0.35
             ):

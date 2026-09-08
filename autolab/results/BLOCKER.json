@@ -1,7 +1,7 @@
 {
   "blocker": null,
-  "cleared_at": "2026-09-08T13:16:32.619988+00:00",
-  "note": "V13_visual_quality_soft REJECT 8.66 vs V10 8.69",
+  "cleared_at": "2026-09-08T13:22:08.459076+00:00",
+  "note": "V14_peak_hold_soft REJECT 8.58 vs V10 8.69",
   "best_version": "V10_continuity_color",
   "best_score": 8.69,
   "renders_executed": true

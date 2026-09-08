@@ -1,26 +1,28 @@
 {
-  "id": "ceremony_story",
-  "title": "Ceremony story arc",
+  "id": "family_warmth",
+  "title": "Guests and family warmth",
+  "style": "classic",
   "target_duration": 40,
-  "description": "Narrative: detail \u2192 aisle energy \u2192 vows emotion \u2192 kiss/hug \u2192 resolution.",
-  "min_shot_dur": 2.0,
-  "max_shot_dur": 5.0,
-  "peak_min_dur": 3.0,
+  "description": "Guests and family warmth",
+  "min_shot_dur": 1.8,
+  "max_shot_dur": 4.0,
+  "peak_min_dur": 2.5,
   "prefer_xfade_sections": [
     "intro",
-    "outro"
+    "outro",
+    "build"
   ],
   "hard_cut_on_peak": true,
   "role_arc": {
     "intro": [
       "detail",
-      "wide",
-      "portrait"
+      "detail",
+      "wide"
     ],
     "build": [
-      "wide",
+      "detail",
       "portrait",
-      "detail"
+      "wide"
     ],
     "verse": [
       "portrait",
@@ -29,8 +31,8 @@
     ],
     "chorus": [
       "couple",
-      "portrait",
-      "wide"
+      "motion",
+      "portrait"
     ],
     "peak": [
       "couple",
@@ -39,12 +41,11 @@
     ],
     "outro": [
       "wide",
-      "couple",
-      "detail"
+      "detail",
+      "couple"
     ]
   },
   "ranking_profile": "B_story_music",
   "pace_hold": true,
-  "peak_hold": true,
-  "style": "classic"
+  "peak_hold": true
 }

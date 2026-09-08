@@ -1,10 +1,11 @@
 {
-  "id": "emotion_first",
-  "title": "Emotion-first highlight",
+  "id": "prep_to_peak",
+  "title": "Prep detail into emotional peak",
+  "style": "emotional",
   "target_duration": 38,
-  "description": "Protect faces and peaks; longer holds on emotional beats.",
-  "min_shot_dur": 1.8,
-  "max_shot_dur": 4.5,
+  "description": "Prep detail into emotional peak",
+  "min_shot_dur": 1.9,
+  "max_shot_dur": 4.2,
   "peak_min_dur": 2.8,
   "prefer_xfade_sections": [
     "intro",
@@ -15,23 +16,23 @@
   "role_arc": {
     "intro": [
       "detail",
-      "portrait",
+      "detail",
       "wide"
     ],
     "build": [
-      "portrait",
       "detail",
-      "couple"
+      "portrait",
+      "wide"
     ],
     "verse": [
-      "couple",
       "portrait",
+      "couple",
       "detail"
     ],
     "chorus": [
       "couple",
-      "portrait",
-      "motion"
+      "motion",
+      "portrait"
     ],
     "peak": [
       "couple",
@@ -40,12 +41,11 @@
     ],
     "outro": [
       "wide",
-      "couple",
-      "detail"
+      "detail",
+      "couple"
     ]
   },
   "ranking_profile": "A_emotion",
   "pace_hold": true,
-  "peak_hold": true,
-  "style": "emotional"
+  "peak_hold": true
 }

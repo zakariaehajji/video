@@ -15,7 +15,7 @@ from wedding_v3.emotion import analyze_video, ensure_yunet_model
 
 CACHE_DIR = Path(__file__).resolve().parents[1] / "Output" / "v3_cache" / "shots"
 # Bump when emotion/intimacy/color feature schema changes so stale pools are not reused.
-CACHE_SCHEMA = "v4_color_continuity"
+CACHE_SCHEMA = "v5_library_craft"
 
 ROLE_HINTS = {
     "detail": ("5223", "18204", "5183", "5218"),

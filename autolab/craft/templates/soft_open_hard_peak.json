@@ -1,21 +1,23 @@
 {
-  "id": "ceremony_story",
-  "title": "Ceremony story arc",
-  "target_duration": 40,
-  "description": "Narrative: detail \u2192 aisle energy \u2192 vows emotion \u2192 kiss/hug \u2192 resolution.",
+  "id": "soft_open_hard_peak",
+  "title": "Soft open, hard climax",
+  "style": "emotional",
+  "target_duration": 38,
+  "description": "Soft open, hard climax",
   "min_shot_dur": 2.0,
-  "max_shot_dur": 5.0,
-  "peak_min_dur": 3.0,
+  "max_shot_dur": 4.2,
+  "peak_min_dur": 2.9,
   "prefer_xfade_sections": [
     "intro",
-    "outro"
+    "outro",
+    "build"
   ],
   "hard_cut_on_peak": true,
   "role_arc": {
     "intro": [
       "detail",
       "wide",
-      "portrait"
+      "detail"
     ],
     "build": [
       "wide",
@@ -23,9 +25,9 @@
       "detail"
     ],
     "verse": [
-      "portrait",
       "couple",
-      "detail"
+      "detail",
+      "portrait"
     ],
     "chorus": [
       "couple",
@@ -35,16 +37,15 @@
     "peak": [
       "couple",
       "portrait",
-      "motion"
+      "detail"
     ],
     "outro": [
       "wide",
-      "couple",
-      "detail"
+      "detail",
+      "couple"
     ]
   },
-  "ranking_profile": "B_story_music",
+  "ranking_profile": "C_peak_payoff",
   "pace_hold": true,
-  "peak_hold": true,
-  "style": "classic"
+  "peak_hold": true
 }

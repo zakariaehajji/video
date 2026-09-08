@@ -110,34 +110,100 @@ def register(
 # Mixkit
 # ---------------------------------------------------------------------------
 
-def discover_mixkit_ids(pages: list[str]) -> list[str]:
+def _extract_mixkit_ids(html: str) -> set[str]:
     ids: set[str] = set()
-    for page in pages:
-        try:
-            req = urllib.request.Request(page, headers=HEADERS)
-            html = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "ignore")
-            ids.update(re.findall(r"assets\.mixkit\.co/videos/(\d+)/\1-(?:360|720|1080)\.mp4", html))
-            ids.update(re.findall(r"/free-stock-video/[^\"']+-(\d+)/", html))
-        except Exception as e:
-            print(f"  mixkit page fail {page}: {e}", flush=True)
-        time.sleep(0.4)
+    ids.update(re.findall(r"assets\.mixkit\.co/videos/(\d+)/", html))
+    ids.update(re.findall(r"/free-stock-video/[^\"']+-(\d+)/", html))
+    return ids
+
+
+def discover_mixkit_ids(cfg: dict, want: int = 1200) -> list[str]:
+    """Discover Mixkit video IDs via category pagination + query landing pages.
+
+    Stops early once ``want`` unique IDs are collected so downloads can begin.
+    """
+    ids: set[str] = set()
+    headers = {**HEADERS, "User-Agent": "Mozilla/5.0"}
+    # Prefer wedding-relevant categories first.
+    preferred = ["wedding", "love", "people", "lifestyle"]
+    rest = [c for c in (cfg.get("mixkit_categories") or []) if c not in preferred]
+    categories = preferred + rest
+    for cat in categories:
+        if len(ids) >= want:
+            break
+        for page in range(1, 40):
+            if len(ids) >= want:
+                break
+            if page == 1:
+                url = f"https://mixkit.co/free-stock-video/{cat}/"
+            else:
+                url = f"https://mixkit.co/free-stock-video/{cat}/?page={page}"
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                html = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "ignore")
+                found = _extract_mixkit_ids(html)
+                new = found - ids
+                if not found or not new:
+                    break
+                ids |= found
+                print(f"  mixkit {cat} p{page}: +{len(new)} (total {len(ids)})", flush=True)
+            except Exception as e:
+                print(f"  mixkit page fail {url}: {e}", flush=True)
+                break
+            time.sleep(0.25)
+
+    if len(ids) < want:
+        for page_url in cfg.get("mixkit_search_pages") or []:
+            if len(ids) >= want:
+                break
+            try:
+                req = urllib.request.Request(page_url, headers=headers)
+                html = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "ignore")
+                before = len(ids)
+                ids |= _extract_mixkit_ids(html)
+                print(f"  mixkit page {page_url}: +{len(ids) - before}", flush=True)
+            except Exception as e:
+                print(f"  mixkit page fail {page_url}: {e}", flush=True)
+            time.sleep(0.25)
+
+    if len(ids) < want:
+        for q in cfg.get("mixkit_queries") or []:
+            if len(ids) >= want:
+                break
+            url = "https://mixkit.co/free-stock-video/?" + urllib.parse.urlencode({"q": q})
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                html = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "ignore")
+                before = len(ids)
+                ids |= _extract_mixkit_ids(html)
+                if len(ids) > before:
+                    print(f"  mixkit q={q}: +{len(ids) - before}", flush=True)
+            except Exception as e:
+                print(f"  mixkit q fail {q}: {e}", flush=True)
+            time.sleep(0.2)
     return sorted(ids)
 
 
 def download_mixkit(manifest: dict, target: int) -> None:
     queries = json.loads(QUERIES_PATH.read_text(encoding="utf-8"))
-    pages = queries.get("mixkit_search_pages") or []
     print("Discovering Mixkit IDs...", flush=True)
-    ids = discover_mixkit_ids(pages)
+    # Collect a bit more than target so failed/404 IDs do not leave us short.
+    ids = discover_mixkit_ids(queries, want=max(target + 50, int(target * 1.4)))
     # Seed known wedding IDs from existing project usage + common Mixkit wedding set
     seed = [
         "18204", "40597", "40591", "40596", "40599", "40601", "5206",
         "36171", "4829", "5213", "5223", "5183", "5218", "1151",
+        "40584", "40586", "40587", "40590", "40593", "40592", "40595", "40602",
     ]
     for s in seed:
         if s not in ids:
             ids.append(s)
-    print(f"  candidate ids: {len(ids)}", flush=True)
+    # Prefer seed + wedding-range IDs first (better match for montage craft).
+    seed_set = set(seed)
+    preferred = [i for i in ids if i in seed_set or i.startswith("40") or i.startswith("18") or i.startswith("52") or i.startswith("36") or i.startswith("48")]
+    rest = [i for i in ids if i not in preferred]
+    ids = preferred + rest
+    print(f"  candidate ids: {len(ids)} (preferred first={len(preferred)})", flush=True)
     out_dir = LIB / "mixkit"
     out_dir.mkdir(parents=True, exist_ok=True)
 

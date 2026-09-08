@@ -1,36 +1,38 @@
 {
-  "id": "ceremony_story",
-  "title": "Ceremony story arc",
-  "target_duration": 40,
-  "description": "Narrative: detail \u2192 aisle energy \u2192 vows emotion \u2192 kiss/hug \u2192 resolution.",
+  "id": "golden_hour",
+  "title": "Warm couple walk energy",
+  "style": "emotional",
+  "target_duration": 38,
+  "description": "Warm couple walk energy",
   "min_shot_dur": 2.0,
-  "max_shot_dur": 5.0,
-  "peak_min_dur": 3.0,
+  "max_shot_dur": 4.5,
+  "peak_min_dur": 2.8,
   "prefer_xfade_sections": [
     "intro",
-    "outro"
+    "outro",
+    "build"
   ],
   "hard_cut_on_peak": true,
   "role_arc": {
     "intro": [
       "detail",
-      "wide",
-      "portrait"
+      "portrait",
+      "wide"
     ],
     "build": [
-      "wide",
       "portrait",
-      "detail"
+      "detail",
+      "couple"
     ],
     "verse": [
-      "portrait",
       "couple",
+      "portrait",
       "detail"
     ],
     "chorus": [
       "couple",
       "portrait",
-      "wide"
+      "motion"
     ],
     "peak": [
       "couple",
@@ -43,8 +45,7 @@
       "detail"
     ]
   },
-  "ranking_profile": "B_story_music",
+  "ranking_profile": "A_emotion",
   "pace_hold": true,
-  "peak_hold": true,
-  "style": "classic"
+  "peak_hold": true
 }

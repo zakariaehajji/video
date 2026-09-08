@@ -10,7 +10,7 @@ from wedding_v3.cinematic import render_montage
 from wedding_v3.critic import critique_plan, save_critique
 from wedding_v3.music import MusicAnalysis
 from wedding_v3.ranking import WEIGHT_PROFILES, allocate
-from wedding_v3.shots import build_pool, load_pool
+from wedding_v3.shots import build_library_pool, build_pool, load_pool
 from wedding_v3.story import available_roles_from_shots, plan_story
 from wedding_v3.titles import TOTAL_TARGET, content_duration
 
@@ -29,6 +29,7 @@ def run_candidates(
     render_top: int = 3,
     tag: str = "run",
     out_root: Path | str | None = None,
+    craft_templates: list[dict] | None = None,
 ) -> dict:
     audio = Path(audio)
     if shots is None:
@@ -58,59 +59,83 @@ def run_candidates(
     cid = 0
     # When title cards are gated on, shrink footage so total film stays ~38s.
     story_dur = content_duration(TOTAL_TARGET)
-    for style in styles:
-        beats = plan_story(analysis, roles, target_duration=story_dur, style=style)
-        for profile in profiles:
-            cid += 1
-            picks = allocate(beats, shots, profile=profile)
-            critique = critique_plan(picks, profile=profile)
-            name = f"candidate_{cid:02d}_{style}_{profile}"
-            plan_path = plans_dir / f"{name}.json"
-            plan_path.write_text(
-                json.dumps(
-                    {
-                        "name": name,
-                        "style": style,
-                        "profile": profile,
-                        "audio": str(audio),
-                        "critique": critique.to_dict(),
-                        "picks": [
-                            {
-                                "role": p.beat.role,
-                                "section": p.beat.section,
-                                "dur": p.beat.dur,
-                                "slowmo": p.beat.want_slowmo,
-                                "xfade": p.beat.want_xfade,
-                                "peak": p.beat.is_peak,
-                                "score": p.score,
-                                "shot_id": p.shot.id,
-                                "video": Path(p.shot.video).name,
-                                "start": p.shot.start,
-                                "best_t": p.shot.best_t,
-                                "emotion": p.shot.emotion_score,
-                                "reasons": p.reasons,
-                            }
-                            for p in picks
-                        ],
-                    },
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-            save_critique(critique, plans_dir / f"{name}_critique.json")
-            candidates.append(
+
+    def _emit(style: str, profile: str, craft: dict | None, beats, picks, critique, name_prefix: str):
+        nonlocal cid
+        cid += 1
+        name = f"candidate_{cid:02d}_{name_prefix}"
+        plan_path = plans_dir / f"{name}.json"
+        plan_path.write_text(
+            json.dumps(
                 {
-                    "id": cid,
                     "name": name,
                     "style": style,
                     "profile": profile,
-                    "overall": critique.overall,
+                    "craft_id": (craft or {}).get("id"),
+                    "audio": str(audio),
                     "critique": critique.to_dict(),
-                    "picks": picks,
-                    "plan_path": str(plan_path),
-                }
+                    "picks": [
+                        {
+                            "role": p.beat.role,
+                            "section": p.beat.section,
+                            "dur": p.beat.dur,
+                            "slowmo": p.beat.want_slowmo,
+                            "xfade": p.beat.want_xfade,
+                            "peak": p.beat.is_peak,
+                            "score": p.score,
+                            "shot_id": p.shot.id,
+                            "video": Path(p.shot.video).name,
+                            "start": p.shot.start,
+                            "best_t": p.shot.best_t,
+                            "emotion": p.shot.emotion_score,
+                            "reasons": p.reasons,
+                        }
+                        for p in picks
+                    ],
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        save_critique(critique, plans_dir / f"{name}_critique.json")
+        candidates.append(
+            {
+                "id": cid,
+                "name": name,
+                "style": style,
+                "profile": profile,
+                "craft_id": (craft or {}).get("id"),
+                "overall": critique.overall,
+                "critique": critique.to_dict(),
+                "picks": picks,
+                "plan_path": str(plan_path),
+            }
+        )
+        print(f"  plan {name}: overall={critique.overall:.2f} shots={len(picks)}", flush=True)
+
+    if craft_templates:
+        for craft in craft_templates:
+            style = str(craft.get("style") or "emotional")
+            profile = str(craft.get("ranking_profile") or "C_peak_payoff")
+            if profile not in WEIGHT_PROFILES:
+                profile = "C_peak_payoff"
+            beats = plan_story(
+                analysis,
+                roles,
+                target_duration=float(craft.get("target_duration") or story_dur),
+                style=style,
+                craft=craft,
             )
-            print(f"  plan {name}: overall={critique.overall:.2f} shots={len(picks)}", flush=True)
+            picks = allocate(beats, shots, profile=profile)
+            critique = critique_plan(picks, profile=profile, craft=craft)
+            _emit(style, profile, craft, beats, picks, critique, f"craft_{craft.get('id', 'x')}_{profile}")
+    else:
+        for style in styles:
+            beats = plan_story(analysis, roles, target_duration=story_dur, style=style)
+            for profile in profiles:
+                picks = allocate(beats, shots, profile=profile)
+                critique = critique_plan(picks, profile=profile)
+                _emit(style, profile, None, beats, picks, critique, f"{style}_{profile}")
 
     candidates.sort(key=lambda c: c["overall"], reverse=True)
 
@@ -173,7 +198,13 @@ def run_candidates(
         "audio": str(audio),
         "n_candidates": len(candidates),
         "leaderboard": [
-            {"name": c["name"], "overall": c["overall"], "style": c["style"], "profile": c["profile"]}
+            {
+                "name": c["name"],
+                "overall": c["overall"],
+                "style": c["style"],
+                "profile": c["profile"],
+                "craft_id": c.get("craft_id"),
+            }
             for c in candidates
         ],
         "rendered": rendered,
@@ -184,8 +215,8 @@ def run_candidates(
 
 
 def main() -> None:
-    print("=== Building shot database ===", flush=True)
-    shots = build_pool(VID_DIR, force=False)
+    print("=== Building shot database (library + wedding_web) ===", flush=True)
+    shots = build_library_pool(force=False)
     audios = sorted(AUD_DIR.glob("music_*.mp3"))
     # Primary experiment on harp track + one more
     targets = [AUD_DIR / "music_698.mp3", AUD_DIR / "music_428.mp3"]

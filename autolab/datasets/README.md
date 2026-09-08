@@ -45,3 +45,11 @@ Manifest: `autolab/datasets/manifest.json`
 ```powershell
 .\.venv\Scripts\python.exe -m wedding_v3.shots
 ```
+
+## Craft tournament
+
+```powershell
+.\.venv\Scripts\python.exe autolab\run_craft_tournament.py
+```
+
+Toward ~1000 clips: leave Mixkit running overnight with `--target 1000`. Add Pexels/Pixabay keys for more volume and wedding specificity.

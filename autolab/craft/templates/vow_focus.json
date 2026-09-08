@@ -1,11 +1,12 @@
 {
-  "id": "emotion_first",
-  "title": "Emotion-first highlight",
+  "id": "vow_focus",
+  "title": "Vow / reaction protection",
+  "style": "emotional",
   "target_duration": 38,
-  "description": "Protect faces and peaks; longer holds on emotional beats.",
-  "min_shot_dur": 1.8,
-  "max_shot_dur": 4.5,
-  "peak_min_dur": 2.8,
+  "description": "Vow / reaction protection",
+  "min_shot_dur": 2.2,
+  "max_shot_dur": 4.8,
+  "peak_min_dur": 3.4,
   "prefer_xfade_sections": [
     "intro",
     "outro",
@@ -14,18 +15,18 @@
   "hard_cut_on_peak": true,
   "role_arc": {
     "intro": [
-      "detail",
       "portrait",
+      "detail",
       "wide"
     ],
     "build": [
       "portrait",
-      "detail",
-      "couple"
+      "portrait",
+      "detail"
     ],
     "verse": [
-      "couple",
       "portrait",
+      "couple",
       "detail"
     ],
     "chorus": [
@@ -34,18 +35,17 @@
       "motion"
     ],
     "peak": [
-      "couple",
       "portrait",
+      "couple",
       "motion"
     ],
     "outro": [
-      "wide",
       "couple",
-      "detail"
+      "wide",
+      "portrait"
     ]
   },
-  "ranking_profile": "A_emotion",
+  "ranking_profile": "C_peak_payoff",
   "pace_hold": true,
-  "peak_hold": true,
-  "style": "emotional"
+  "peak_hold": true
 }

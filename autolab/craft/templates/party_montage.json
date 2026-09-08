@@ -1,0 +1,49 @@
+{
+  "id": "party_montage",
+  "title": "Short party montage",
+  "style": "energetic",
+  "target_duration": 30,
+  "description": "Short party montage",
+  "min_shot_dur": 1.0,
+  "max_shot_dur": 2.8,
+  "peak_min_dur": 1.8,
+  "prefer_xfade_sections": [
+    "outro"
+  ],
+  "hard_cut_on_peak": true,
+  "role_arc": {
+    "intro": [
+      "wide",
+      "motion",
+      "detail"
+    ],
+    "build": [
+      "motion",
+      "wide",
+      "portrait"
+    ],
+    "verse": [
+      "motion",
+      "couple",
+      "portrait"
+    ],
+    "chorus": [
+      "motion",
+      "couple",
+      "wide"
+    ],
+    "peak": [
+      "couple",
+      "motion",
+      "portrait"
+    ],
+    "outro": [
+      "wide",
+      "motion",
+      "couple"
+    ]
+  },
+  "ranking_profile": "D_balanced",
+  "pace_hold": false,
+  "peak_hold": false
+}

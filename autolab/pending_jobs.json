@@ -108,5 +108,16 @@
     "returncode": 1,
     "score": 8.66,
     "verdict": "REJECT"
+  },
+  {
+    "id": "V14_peak_hold_soft",
+    "script": "autolab/run_v14_peak_hold_soft.py",
+    "status": "done",
+    "priority": 11,
+    "hypothesis": "Milder peak linger (+0.25s top-3 only) without duration-weight critic",
+    "depends_on": "V10_continuity_color",
+    "returncode": 1,
+    "score": 8.58,
+    "verdict": "REJECT"
   }
 ]

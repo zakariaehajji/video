@@ -1,11 +1,12 @@
 {
-  "id": "emotion_first",
-  "title": "Emotion-first highlight",
+  "id": "balanced_classic",
+  "title": "Classic agency delivery",
+  "style": "classic",
   "target_duration": 38,
-  "description": "Protect faces and peaks; longer holds on emotional beats.",
+  "description": "Classic agency delivery",
   "min_shot_dur": 1.8,
-  "max_shot_dur": 4.5,
-  "peak_min_dur": 2.8,
+  "max_shot_dur": 4.0,
+  "peak_min_dur": 2.5,
   "prefer_xfade_sections": [
     "intro",
     "outro",
@@ -44,8 +45,7 @@
       "detail"
     ]
   },
-  "ranking_profile": "A_emotion",
+  "ranking_profile": "D_balanced",
   "pace_hold": true,
-  "peak_hold": true,
-  "style": "emotional"
+  "peak_hold": true
 }

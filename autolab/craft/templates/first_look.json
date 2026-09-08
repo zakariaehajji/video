@@ -1,24 +1,26 @@
 {
-  "id": "ceremony_story",
-  "title": "Ceremony story arc",
-  "target_duration": 40,
-  "description": "Narrative: detail \u2192 aisle energy \u2192 vows emotion \u2192 kiss/hug \u2192 resolution.",
-  "min_shot_dur": 2.0,
-  "max_shot_dur": 5.0,
+  "id": "first_look",
+  "title": "First-look intimacy arc",
+  "style": "emotional",
+  "target_duration": 34,
+  "description": "First-look intimacy arc",
+  "min_shot_dur": 2.1,
+  "max_shot_dur": 4.5,
   "peak_min_dur": 3.0,
   "prefer_xfade_sections": [
     "intro",
-    "outro"
+    "outro",
+    "build"
   ],
   "hard_cut_on_peak": true,
   "role_arc": {
     "intro": [
+      "portrait",
       "detail",
-      "wide",
-      "portrait"
+      "wide"
     ],
     "build": [
-      "wide",
+      "portrait",
       "portrait",
       "detail"
     ],
@@ -30,21 +32,20 @@
     "chorus": [
       "couple",
       "portrait",
-      "wide"
+      "motion"
     ],
     "peak": [
-      "couple",
       "portrait",
+      "couple",
       "motion"
     ],
     "outro": [
-      "wide",
       "couple",
-      "detail"
+      "wide",
+      "portrait"
     ]
   },
-  "ranking_profile": "B_story_music",
+  "ranking_profile": "A_emotion",
   "pace_hold": true,
-  "peak_hold": true,
-  "style": "classic"
+  "peak_hold": true
 }

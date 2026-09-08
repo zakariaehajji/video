@@ -65,13 +65,18 @@ def _clamp10(x: float) -> float:
     return round(max(0.0, min(10.0, x)), 2)
 
 
-def critique_plan(picks: list[RankedPick], profile: str = "") -> Critique:
+def critique_plan(
+    picks: list[RankedPick],
+    profile: str = "",
+    craft: dict[str, Any] | None = None,
+) -> Critique:
     if not picks:
         return Critique(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ["empty plan"], ["generate shots"])
 
     n = len(picks)
     problems: list[str] = []
     recs: list[str] = []
+    craft = craft or {}
 
     tech = sum(p.shot.technical_quality for p in picks) / n
     visual = sum(p.shot.cinematic_quality for p in picks) / n
@@ -226,6 +231,62 @@ def critique_plan(picks: list[RankedPick], profile: str = "") -> Critique:
         problems.append("final shot is not strong enough")
         recs.append("use wider/couple ending with higher quality")
 
+    # Craft checklist: eye contact proxy, dead air, jump cuts, music-phrase holds.
+    craft_bonus = 0.0
+    peak_no_face = sum(1 for p in peak_slots if p.shot.faces < 1)
+    if peak_no_face:
+        problems.append("peak lacks eye-contact / face (craft)")
+        recs.append("place sharp face close-ups on emotional peaks")
+        craft_bonus -= 0.03 * peak_no_face
+    soft_peaks = sum(
+        1
+        for p in peak_slots
+        if float(getattr(p.shot, "sharpness", 0.0) or 0.0) < 0.45
+    )
+    if soft_peaks:
+        problems.append("soft / blurry peak frames (craft)")
+        craft_bonus -= 0.02 * soft_peaks
+    micro = sum(1 for p in picks if p.beat.dur < 1.0)
+    if micro >= max(3, n // 4):
+        problems.append("dead-air risk from micro-cuts (craft)")
+        recs.append("hold emotional phrases; cut on section changes")
+        pacing = max(0.35, pacing - 0.08)
+        craft_bonus -= 0.04
+    # Jump cuts: hard consecutive same-role + large color jump feels stocky.
+    jumpish = 0
+    for a, b in zip(picks, picks[1:]):
+        if a.beat.want_xfade or b.beat.want_xfade:
+            continue
+        if a.beat.role == b.beat.role and a.shot.video != b.shot.video:
+            if color_distance(a.shot, b.shot) >= 0.55:
+                jumpish += 1
+    if jumpish >= 2:
+        problems.append("jump-cut collage feel (craft)")
+        recs.append("bridge with detail or soften with xfade on soft sections")
+        continuity = max(0.35, continuity - 0.06)
+        craft_bonus -= 0.03
+    # Music phrase alignment: mean hold should respect craft min when provided.
+    craft_min = float(craft.get("min_shot_dur") or 0)
+    if craft_min > 0 and mean_d + 0.05 < craft_min * 0.85:
+        problems.append("holds shorter than craft template phrase floor")
+        pacing = max(0.35, pacing - 0.06)
+        craft_bonus -= 0.03
+    elif craft_min > 0 and mean_d >= craft_min * 0.95:
+        craft_bonus += 0.02
+    # Prefer intimate climax when template asks for peak_hold.
+    if craft.get("peak_hold") and peak_slots:
+        intimate = sum(
+            1
+            for p in peak_slots
+            if p.shot.shot_type in ("couple", "portrait") or p.shot.faces >= 1
+        )
+        if intimate / len(peak_slots) >= 0.7:
+            craft_bonus += 0.025
+            emo = min(1.0, emo + 0.02)
+        else:
+            problems.append("craft peak_hold not met with intimate shots")
+            craft_bonus -= 0.02
+
     # peak too early
     if peak_slots:
         first_peak_i = next(i for i, p in enumerate(picks) if p.beat.is_peak)
@@ -244,6 +305,7 @@ def critique_plan(picks: list[RankedPick], profile: str = "") -> Critique:
         + 0.07 * pacing
         + 0.04 * tech
         + 0.03 * polish
+        + craft_bonus
     )
 
     return Critique(

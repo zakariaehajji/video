@@ -1,49 +1,49 @@
 {
-  "id": "reception_energy",
-  "title": "Reception energy",
-  "target_duration": 38,
-  "description": "Dance and celebration with controlled cut rate.",
-  "min_shot_dur": 1.4,
+  "id": "dance_floor",
+  "title": "Reception energy cuts",
+  "style": "energetic",
+  "target_duration": 42,
+  "description": "Reception energy cuts",
+  "min_shot_dur": 1.2,
   "max_shot_dur": 3.2,
   "peak_min_dur": 2.0,
   "prefer_xfade_sections": [
-    "intro",
     "outro"
   ],
   "hard_cut_on_peak": true,
   "role_arc": {
     "intro": [
       "wide",
-      "detail",
-      "portrait"
+      "motion",
+      "detail"
     ],
     "build": [
       "motion",
-      "couple",
+      "wide",
       "portrait"
     ],
     "verse": [
       "motion",
       "couple",
-      "wide"
+      "portrait"
     ],
     "chorus": [
       "motion",
       "couple",
-      "portrait"
+      "wide"
     ],
     "peak": [
+      "couple",
       "motion",
-      "couple"
+      "portrait"
     ],
     "outro": [
       "wide",
-      "couple",
-      "detail"
+      "motion",
+      "couple"
     ]
   },
-  "ranking_profile": "C_peak_payoff",
+  "ranking_profile": "D_balanced",
   "pace_hold": false,
-  "peak_hold": true,
-  "style": "energetic"
+  "peak_hold": false
 }

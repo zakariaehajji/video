@@ -6,17 +6,43 @@
   "min_shot_dur": 2.4,
   "max_shot_dur": 5.5,
   "peak_min_dur": 3.2,
-  "prefer_xfade_sections": ["intro", "build", "outro", "verse"],
+  "prefer_xfade_sections": [
+    "intro",
+    "build",
+    "outro",
+    "verse"
+  ],
   "hard_cut_on_peak": false,
   "role_arc": {
-    "intro": ["detail", "portrait"],
-    "build": ["portrait", "detail"],
-    "verse": ["portrait", "couple", "detail"],
-    "chorus": ["portrait", "couple"],
-    "peak": ["portrait", "couple"],
-    "outro": ["couple", "wide", "detail"]
+    "intro": [
+      "detail",
+      "portrait"
+    ],
+    "build": [
+      "portrait",
+      "detail"
+    ],
+    "verse": [
+      "portrait",
+      "couple",
+      "detail"
+    ],
+    "chorus": [
+      "portrait",
+      "couple"
+    ],
+    "peak": [
+      "portrait",
+      "couple"
+    ],
+    "outro": [
+      "couple",
+      "wide",
+      "detail"
+    ]
   },
   "ranking_profile": "A_emotion",
   "pace_hold": true,
-  "peak_hold": true
+  "peak_hold": true,
+  "style": "emotional"
 }

@@ -1,11 +1,12 @@
 {
-  "id": "classic_balanced",
-  "title": "Classic balanced",
-  "target_duration": 38,
-  "description": "Even mix of story, emotion, and music sync.",
+  "id": "ring_to_kiss",
+  "title": "Detail ring into kiss peak",
+  "style": "emotional",
+  "target_duration": 36,
+  "description": "Detail ring into kiss peak",
   "min_shot_dur": 1.9,
   "max_shot_dur": 4.2,
-  "peak_min_dur": 2.5,
+  "peak_min_dur": 3.0,
   "prefer_xfade_sections": [
     "intro",
     "outro",
@@ -15,18 +16,18 @@
   "role_arc": {
     "intro": [
       "detail",
-      "wide",
-      "portrait"
+      "detail",
+      "wide"
     ],
     "build": [
-      "portrait",
       "detail",
-      "couple"
+      "portrait",
+      "wide"
     ],
     "verse": [
-      "couple",
       "portrait",
-      "motion"
+      "couple",
+      "detail"
     ],
     "chorus": [
       "couple",
@@ -40,12 +41,11 @@
     ],
     "outro": [
       "wide",
-      "couple",
-      "detail"
+      "detail",
+      "couple"
     ]
   },
-  "ranking_profile": "D_balanced",
+  "ranking_profile": "C_peak_payoff",
   "pace_hold": true,
-  "peak_hold": false,
-  "style": "classic"
+  "peak_hold": true
 }
