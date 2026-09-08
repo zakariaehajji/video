@@ -130,5 +130,16 @@
     "returncode": 0,
     "score": 8.73,
     "verdict": "KEEP"
+  },
+  {
+    "id": "V16_reaction_cutaways",
+    "script": "autolab/run_v16_reaction_cutaways.py",
+    "status": "done",
+    "priority": 13,
+    "hypothesis": "Force intercalate guest/family reaction cutaways after intimacy peaks",
+    "depends_on": "V15_emotion_model_refresh",
+    "returncode": 1,
+    "score": 8.7,
+    "verdict": "REJECT"
   }
 ]

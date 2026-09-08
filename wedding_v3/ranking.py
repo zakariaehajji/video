@@ -45,6 +45,12 @@ MUSIC_SECTION_ROLES = os.environ.get("WEDDING_V3_MUSIC_SECTION_ROLES", "0").stri
     "true",
     "yes",
 )
+# V16: intercalate true guest/family reaction cutaways after intimacy peaks.
+REACTION_CUTAWAYS = os.environ.get("WEDDING_V3_REACTION_CUTAWAYS", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # Montage-craft heuristics (always on; modest deltas — does not replace weight profiles).
 CRAFT_SHOT_HEURISTICS = os.environ.get("WEDDING_V3_CRAFT_SHOTS", "1").strip().lower() not in (
@@ -136,6 +142,40 @@ def _effective_weights(profile: str) -> dict[str, float]:
 def _section_role_fit(section: str, role: str) -> float:
     table = SECTION_ROLE_FIT.get(section) or {}
     return float(table.get(role, 0.55))
+
+
+def _is_true_reaction_cutaway(shot: Shot) -> bool:
+    """Guest/family reaction: affective faces, not kiss/hug intimacy frames."""
+    reaction = float(getattr(shot, "reaction", 0.0) or 0.0)
+    kiss = float(getattr(shot, "kiss", 0.0) or 0.0)
+    hug = float(getattr(shot, "hug", 0.0) or 0.0)
+    faces = int(getattr(shot, "faces", 0) or 0)
+    if faces < 1 or reaction < 0.48:
+        return False
+    if kiss >= 0.35 or hug >= 0.50:
+        return False
+    return True
+
+
+def _is_intimacy_peak_shot(shot: Shot, beat: PlannedBeat | None = None) -> bool:
+    """Vow/peak intimacy payoff that should be followed by a reaction cutaway."""
+    if beat is not None and not (
+        beat.is_peak or beat.section in ("peak", "chorus", "bridge")
+    ):
+        return False
+    # True guest reactions are the *response*, not the intimacy trigger.
+    if _is_true_reaction_cutaway(shot):
+        return False
+    kiss = float(getattr(shot, "kiss", 0.0) or 0.0)
+    hug = float(getattr(shot, "hug", 0.0) or 0.0)
+    tears = float(getattr(shot, "tears", 0.0) or 0.0)
+    emotion = float(getattr(shot, "emotion_score", 0.0) or 0.0)
+    if kiss >= 0.40 or hug >= 0.50:
+        return True
+    # Couple tear climax without guest-reaction profile.
+    if tears >= 0.48 and emotion >= 0.52 and shot.shot_type == "couple":
+        return True
+    return False
 
 
 @dataclass
@@ -272,9 +312,33 @@ def score_shot(
         story = min(1.0, story + 0.12)
         emotion = min(1.0, emotion + 0.08)
         reasons.append("tears-role-fit")
-    if beat.section in ("chorus", "peak", "outro") and reaction >= 0.50 and shot.faces >= 1:
-        emotion = min(1.0, emotion + 0.10)
-        reasons.append("reaction-cutaway")
+    if REACTION_CUTAWAYS:
+        # Prefer true guest/family cutaways (not intimacy frames that also score high).
+        true_rx = _is_true_reaction_cutaway(shot)
+        if beat.section in ("chorus", "peak", "outro", "verse") and true_rx:
+            emotion = min(1.0, emotion + 0.16)
+            story = min(1.0, story + 0.08)
+            reasons.append("reaction-cutaway")
+        if recent_shots and _is_intimacy_peak_shot(recent_shots[-1]) and true_rx:
+            emotion = min(1.0, emotion + 0.18)
+            peak = min(1.0, peak + 0.10)
+            story = min(1.0, story + 0.12)
+            reasons.append("reaction-after-intimacy")
+        # Soft-penalize burning another couple intimacy frame right after intimacy.
+        if (
+            recent_shots
+            and _is_intimacy_peak_shot(recent_shots[-1])
+            and (kiss >= 0.40 or hug >= 0.50)
+            and not true_rx
+        ):
+            total_penalty = True  # applied after total computed below
+        else:
+            total_penalty = False
+    else:
+        total_penalty = False
+        if beat.section in ("chorus", "peak", "outro") and reaction >= 0.50 and shot.faces >= 1:
+            emotion = min(1.0, emotion + 0.10)
+            reasons.append("reaction-cutaway")
     if beat.section in ("chorus", "peak", "bridge", "outro") and tears >= 0.45:
         emotion = min(1.0, emotion + 0.12)
         peak = min(1.0, peak + 0.10)
@@ -342,6 +406,9 @@ def score_shot(
         + w["continuity"] * continuity
         + w["variety"] * variety
     )
+    if REACTION_CUTAWAYS and total_penalty:
+        total *= 0.88
+        reasons.append("intimacy-stack-penalty")
     # Reserve strong kiss/hug for peaks — burning them on intro/build wastes wedding feeling.
     if intimacy >= 0.40 and not beat.is_peak and beat.section in ("intro", "build", "verse"):
         total *= 0.82
@@ -470,6 +537,8 @@ def allocate(
         )
     elif PEAK_HOLD:
         picks = polish_peak_emotion_holds(picks)
+    if REACTION_CUTAWAYS:
+        picks = polish_reaction_cutaways(picks, shots)
     return picks
 
 
@@ -487,6 +556,85 @@ def _emotion_intensity(shot: Shot) -> float:
         reaction * 0.85,
         float(shot.smile or 0.0) * 0.7,
     )
+
+
+def polish_reaction_cutaways(
+    picks: list[RankedPick],
+    shots: list[Shot],
+    max_swaps: int = 4,
+) -> list[RankedPick]:
+    """After intimacy peak payoffs, force intercalate guest/family reaction shots.
+
+    Classic wedding grammar: vow/kiss/hug → cut to guest tears/smiles.
+    Keeps beat durations/timeline; only swaps the source shot.
+    """
+    if len(picks) < 4 or max_swaps < 1:
+        return picks
+
+    used = {p.shot.id for p in picks}
+    pool = [s for s in shots if _is_true_reaction_cutaway(s)]
+    if not pool:
+        return picks
+
+    def _rx_key(s: Shot) -> tuple[float, float, float]:
+        # Prefer single-face tearful portraits, then crowd smiles.
+        faces = int(getattr(s, "faces", 0) or 0)
+        portrait_bonus = 0.12 if s.shot_type == "portrait" or faces == 1 else 0.0
+        tears = float(getattr(s, "tears", 0.0) or 0.0)
+        reaction = float(getattr(s, "reaction", 0.0) or 0.0)
+        return (reaction + portrait_bonus + 0.08 * tears, tears, float(s.emotion_score or 0.0))
+
+    pool_sorted = sorted(pool, key=_rx_key, reverse=True)
+    swaps = 0
+    out = list(picks)
+
+    for i in range(1, len(out)):
+        if swaps >= max_swaps:
+            break
+        prev = out[i - 1]
+        cur = out[i]
+        if not _is_intimacy_peak_shot(prev.shot, prev.beat):
+            continue
+        # Only intercalate on emotional sections (not intro bookends).
+        if cur.beat.section not in ("peak", "chorus", "verse", "bridge", "outro"):
+            continue
+        if _is_true_reaction_cutaway(cur.shot):
+            # Already a cutaway — annotate for eval visibility.
+            if "reaction-after-intimacy" not in cur.reasons:
+                cur.reasons = list(cur.reasons) + ["reaction-after-intimacy"]
+            continue
+        # Don't displace another strong kiss/hug climax unless we have a strong reaction.
+        cur_kiss = float(getattr(cur.shot, "kiss", 0.0) or 0.0)
+        if cur_kiss >= 0.42 and swaps >= 2:
+            continue
+
+        candidate = None
+        for s in pool_sorted:
+            if s.id in used:
+                continue
+            # Duration feasibility vs planned beat.
+            if s.duration + 0.05 < min(0.7, cur.beat.dur * 0.6):
+                continue
+            # Mild consecutive-source guard.
+            if s.video == prev.shot.video:
+                continue
+            candidate = s
+            break
+        if candidate is None:
+            continue
+
+        used.discard(cur.shot.id)
+        used.add(candidate.id)
+        reasons = list(cur.reasons) + ["reaction-cutaway-forced", "reaction-after-intimacy"]
+        out[i] = RankedPick(
+            beat=cur.beat,
+            shot=candidate,
+            score=max(cur.score, 0.75),
+            reasons=reasons,
+        )
+        swaps += 1
+
+    return out
 
 
 def polish_peak_emotion_holds(
