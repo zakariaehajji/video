@@ -24,6 +24,12 @@ MUSIC_SECTION_ROLES = os.environ.get("WEDDING_V3_MUSIC_SECTION_ROLES", "0").stri
     "true",
     "yes",
 )
+# V17: ceremony narrative role arc (vows→rings→kiss→exit) inside peak.
+CEREMONY_NARRATIVE = os.environ.get("WEDDING_V3_CEREMONY_NARRATIVE", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 
 ARC_BY_SECTION = {
@@ -43,6 +49,27 @@ ARC_BY_SECTION_TIGHT = {
     "verse": ["couple", "portrait", "detail", "couple"],
     "chorus": ["couple", "motion", "couple", "portrait"],
     "peak": ["couple", "portrait", "couple", "portrait", "couple", "motion"],
+    "outro": ["wide", "couple", "detail", "wide"],
+}
+
+# V17: peak roles follow ceremony beats — vow portraits, ring detail, kiss couple, exit wide.
+ARC_BY_SECTION_CEREMONY = {
+    "intro": ["detail", "wide", "portrait", "detail", "wide"],
+    "build": ["portrait", "detail", "portrait", "wide"],
+    "verse": ["portrait", "couple", "detail", "portrait"],
+    "chorus": ["couple", "portrait", "couple", "motion"],
+    "peak": [
+        "portrait",
+        "portrait",
+        "detail",
+        "couple",
+        "couple",
+        "portrait",
+        "couple",
+        "couple",
+        "motion",
+        "wide",
+    ],
     "outro": ["wide", "couple", "detail", "wide"],
 }
 
@@ -175,7 +202,12 @@ def plan_story(
             if craft_arc and label in craft_arc:
                 arc_prefs = craft_arc[label]
             else:
-                arc = ARC_BY_SECTION_TIGHT if MUSIC_SECTION_ROLES else ARC_BY_SECTION
+                if CEREMONY_NARRATIVE:
+                    arc = ARC_BY_SECTION_CEREMONY
+                elif MUSIC_SECTION_ROLES:
+                    arc = ARC_BY_SECTION_TIGHT
+                else:
+                    arc = ARC_BY_SECTION
                 arc_prefs = arc.get(label, ["couple"])
             prefs = [r for r in arc_prefs if r in available_roles]
             if not prefs:

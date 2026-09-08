@@ -1,7 +1,7 @@
 {
   "blocker": null,
-  "cleared_at": "2026-09-08T13:43:46.940479+00:00",
-  "note": "V16_reaction_cutaways REJECT 8.70 vs V15 8.73",
+  "cleared_at": "2026-09-08T13:52:20.836159+00:00",
+  "note": "V17_ceremony_narrative REJECT 8.70 vs V15 8.73",
   "best_version": "V15_emotion_model_refresh",
   "best_score": 8.73,
   "renders_executed": true

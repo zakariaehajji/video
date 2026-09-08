@@ -51,6 +51,12 @@ REACTION_CUTAWAYS = os.environ.get("WEDDING_V3_REACTION_CUTAWAYS", "0").strip().
     "true",
     "yes",
 )
+# V17: enforce ceremony arc within peak — vows → rings → kiss → exit.
+CEREMONY_NARRATIVE = os.environ.get("WEDDING_V3_CEREMONY_NARRATIVE", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # Montage-craft heuristics (always on; modest deltas — does not replace weight profiles).
 CRAFT_SHOT_HEURISTICS = os.environ.get("WEDDING_V3_CRAFT_SHOTS", "1").strip().lower() not in (
@@ -352,9 +358,17 @@ def score_shot(
             visual = min(1.0, visual + 0.05)
             reasons.append("craft-sharp-face")
         if beat.is_peak and shot.faces < 1:
-            peak *= 0.82
-            emotion *= 0.90
-            reasons.append("craft-peak-no-face")
+            # V17: ring-exchange details are intentional on peak — soften penalty.
+            if CEREMONY_NARRATIVE and (
+                beat.role == "detail" or shot.shot_type == "detail"
+            ):
+                peak *= 0.94
+                emotion *= 0.96
+                reasons.append("ceremony-ring-detail")
+            else:
+                peak *= 0.82
+                emotion *= 0.90
+                reasons.append("craft-peak-no-face")
         if beat.is_peak and sharpness < 0.45:
             peak *= 0.88
             reasons.append("craft-peak-soft")
@@ -537,6 +551,8 @@ def allocate(
         )
     elif PEAK_HOLD:
         picks = polish_peak_emotion_holds(picks)
+    if CEREMONY_NARRATIVE:
+        picks = polish_ceremony_narrative(picks, shots)
     if REACTION_CUTAWAYS:
         picks = polish_reaction_cutaways(picks, shots)
     return picks
@@ -556,6 +572,212 @@ def _emotion_intensity(shot: Shot) -> float:
         reaction * 0.85,
         float(shot.smile or 0.0) * 0.7,
     )
+
+
+def _ceremony_phase(idx_in_peak: int, n_peak: int) -> str:
+    """Map peak-local index → ceremony phase (vows→rings→kiss→exit)."""
+    if n_peak <= 1:
+        return "kiss"
+    frac = idx_in_peak / float(max(1, n_peak - 1))
+    if frac <= 0.20:
+        return "vow"
+    if frac <= 0.38:
+        return "ring"
+    if frac <= 0.78:
+        return "kiss"
+    return "exit"
+
+
+def _ceremony_phase_fit(shot: Shot, phase: str) -> float:
+    """How well a shot serves a ceremony narrative phase (0..1+)."""
+    kiss = float(getattr(shot, "kiss", 0.0) or 0.0)
+    hug = float(getattr(shot, "hug", 0.0) or 0.0)
+    tears = float(getattr(shot, "tears", 0.0) or 0.0)
+    emotion = float(getattr(shot, "emotion_score", 0.0) or 0.0)
+    faces = int(getattr(shot, "faces", 0) or 0)
+    st = shot.shot_type or ""
+    roles = set(shot.story_roles or [])
+    tq = float(getattr(shot, "technical_quality", 0.0) or 0.0)
+
+    if phase == "vow":
+        # Solemn portraits / tearful faces — not the kiss climax yet.
+        if kiss >= 0.40:
+            return 0.15
+        score = 0.20
+        if st == "portrait" or "portrait" in roles:
+            score += 0.35
+        if tears >= 0.42:
+            score += 0.30
+        if faces >= 1 and emotion >= 0.45:
+            score += 0.20
+        if hug >= 0.55:
+            score += 0.08
+        return min(1.15, score)
+
+    if phase == "ring":
+        # Ring-exchange proxy: clean detail / object close-up, or soft couple.
+        if st == "detail" or "detail" in roles or faces == 0:
+            return min(1.15, 0.55 + 0.35 * tq + 0.10 * (1.0 if emotion < 0.55 else 0.0))
+        if kiss >= 0.40:
+            return 0.12
+        if st == "portrait" and tears < 0.45:
+            return 0.40 + 0.15 * tq
+        return 0.18
+
+    if phase == "kiss":
+        intimacy = max(kiss, hug * 0.92)
+        score = 0.15 + 0.55 * intimacy + 0.20 * emotion
+        if st == "couple" or "couple" in roles:
+            score += 0.15
+        if faces >= 2:
+            score += 0.08
+        if kiss >= 0.40:
+            score += 0.18
+        return min(1.25, score)
+
+    # exit — resolution: wide / motion / calmer couple after climax
+    if kiss >= 0.42:
+        return 0.20
+    score = 0.20
+    if st in ("wide", "motion") or st in roles or "wide" in roles or "motion" in roles:
+        score += 0.40
+    if st == "couple" and emotion >= 0.40:
+        score += 0.22
+    if faces == 0 and tq >= 0.65:
+        score += 0.15
+    return min(1.10, score)
+
+
+def polish_ceremony_narrative(
+    picks: list[RankedPick],
+    shots: list[Shot],
+    max_swaps: int = 6,
+) -> list[RankedPick]:
+    """Reorder peak content into vows → rings → kiss → exit ceremony grammar.
+
+    Keeps beat timeline; swaps source shots so early peak = solemn vows,
+    mid = ring/detail beat, climax window = strongest kiss/hug, late = exit/wide.
+    """
+    if len(picks) < 8 or max_swaps < 1:
+        return picks
+
+    peak_idxs = [
+        i
+        for i, p in enumerate(picks)
+        if p.beat.is_peak or p.beat.section == "peak"
+    ]
+    if len(peak_idxs) < 6:
+        return picks
+
+    n_peak = len(peak_idxs)
+    used = {p.shot.id for p in picks}
+    out = list(picks)
+    swaps = 0
+
+    # Phase targets: ensure at least one strong match per phase where pool allows.
+    phase_slots: dict[str, list[int]] = {"vow": [], "ring": [], "kiss": [], "exit": []}
+    for local_i, gi in enumerate(peak_idxs):
+        phase_slots[_ceremony_phase(local_i, n_peak)].append(gi)
+
+    def _best_unused(phase: str, avoid_video: str | None) -> Shot | None:
+        ranked = sorted(
+            shots,
+            key=lambda s: _ceremony_phase_fit(s, phase),
+            reverse=True,
+        )
+        for s in ranked:
+            if s.id in used:
+                continue
+            if avoid_video and s.video == avoid_video:
+                continue
+            # Ring details can be short; others need normal feasibility.
+            fit = _ceremony_phase_fit(s, phase)
+            if fit < (0.55 if phase == "ring" else 0.62):
+                continue
+            return s
+        return None
+
+    # Priority: kiss climax first (emotional payoff), then vow, exit, ring.
+    for phase in ("kiss", "vow", "exit", "ring"):
+        slots = phase_slots.get(phase) or []
+        if not slots:
+            continue
+        # Kiss: place top 2 intimacy shots in climax window.
+        # Others: ensure at least one good match.
+        need = 2 if phase == "kiss" else 1
+        placed = 0
+        for gi in slots:
+            if swaps >= max_swaps or placed >= need:
+                break
+            cur = out[gi]
+            cur_fit = _ceremony_phase_fit(cur.shot, phase)
+            # Already good enough — annotate and keep.
+            threshold = 0.70 if phase == "kiss" else (0.58 if phase == "ring" else 0.65)
+            if cur_fit >= threshold:
+                if f"ceremony-{phase}" not in cur.reasons:
+                    cur.reasons = list(cur.reasons) + [f"ceremony-{phase}"]
+                placed += 1
+                continue
+            # Don't displace a better kiss if we're filling a non-kiss phase.
+            if phase != "kiss" and float(getattr(cur.shot, "kiss", 0.0) or 0.0) >= 0.40:
+                continue
+            prev_video = out[gi - 1].shot.video if gi > 0 else None
+            cand = _best_unused(phase, prev_video)
+            if cand is None:
+                continue
+            # Only swap if clearly better for this phase.
+            if _ceremony_phase_fit(cand, phase) < cur_fit + 0.12:
+                continue
+            # Kiss phase: never install a weak intimacy stand-in.
+            if phase == "kiss" and _ceremony_phase_fit(cand, phase) < 0.70:
+                continue
+            used.discard(cur.shot.id)
+            used.add(cand.id)
+            reasons = list(cur.reasons) + [
+                f"ceremony-{phase}",
+                "ceremony-narrative-swap",
+            ]
+            # Align beat role lightly with phase for downstream titles/critic.
+            new_role = cur.beat.role
+            if phase == "ring" and cand.shot_type == "detail":
+                new_role = "detail"
+            elif phase == "vow" and cand.shot_type == "portrait":
+                new_role = "portrait"
+            elif phase == "kiss" and cand.shot_type in ("couple", "portrait"):
+                new_role = cand.shot_type
+            elif phase == "exit" and cand.shot_type in ("wide", "motion"):
+                new_role = cand.shot_type
+            beat = cur.beat
+            if new_role != cur.beat.role:
+                beat = PlannedBeat(
+                    t0=cur.beat.t0,
+                    t1=cur.beat.t1,
+                    dur=cur.beat.dur,
+                    section=cur.beat.section,
+                    role=new_role,
+                    energy=cur.beat.energy,
+                    want_slowmo=cur.beat.want_slowmo,
+                    want_xfade=cur.beat.want_xfade,
+                    is_peak=cur.beat.is_peak,
+                )
+            out[gi] = RankedPick(
+                beat=beat,
+                shot=cand,
+                score=max(cur.score, 0.78),
+                reasons=reasons,
+            )
+            swaps += 1
+            placed += 1
+
+    # Soft-penalize annotation: if early peak still holds a strong kiss, mark only
+    # (structural swap already preferred kiss into climax window).
+    for local_i, gi in enumerate(peak_idxs):
+        phase = _ceremony_phase(local_i, n_peak)
+        if phase == "vow" and float(getattr(out[gi].shot, "kiss", 0.0) or 0.0) >= 0.40:
+            if "ceremony-kiss-early" not in out[gi].reasons:
+                out[gi].reasons = list(out[gi].reasons) + ["ceremony-kiss-early"]
+
+    return out
 
 
 def polish_reaction_cutaways(

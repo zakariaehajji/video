@@ -141,5 +141,16 @@
     "returncode": 1,
     "score": 8.7,
     "verdict": "REJECT"
+  },
+  {
+    "id": "V17_ceremony_narrative",
+    "script": "autolab/run_v17_ceremony_narrative.py",
+    "status": "done",
+    "priority": 14,
+    "hypothesis": "Stronger ceremony arc (vows\u2192rings\u2192kiss\u2192exit) lifts story coherence",
+    "depends_on": "V15_emotion_model_refresh",
+    "returncode": 1,
+    "score": 8.7,
+    "verdict": "REJECT"
   }
 ]
