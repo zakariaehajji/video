@@ -185,5 +185,16 @@
     "returncode": 0,
     "score": 8.82,
     "verdict": "KEEP"
+  },
+  {
+    "id": "V21_reaction_cutaways_v2",
+    "script": "autolab/run_v21_reaction_cutaways_v2.py",
+    "status": "done",
+    "priority": 17,
+    "hypothesis": "Force 2\u20133 true reaction cutaways after intimacy without V16 zero-swap",
+    "depends_on": "V20_peak_payoff_faces",
+    "returncode": 0,
+    "score": 8.84,
+    "verdict": "KEEP"
   }
 ]

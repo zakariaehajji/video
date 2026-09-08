@@ -18,6 +18,12 @@ PEAK_HOLD = os.environ.get("WEDDING_V3_PEAK_HOLD", "0").strip().lower() in (
     "true",
     "yes",
 )
+# V19: slightly longer mid-peak holds (must match ranking.PACE_BREATHE gate).
+PACE_BREATHE = os.environ.get("WEDDING_V3_PACE_BREATHE", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 # V12: tighter music-section → story-role grammar (energy-aware role picks).
 MUSIC_SECTION_ROLES = os.environ.get("WEDDING_V3_MUSIC_SECTION_ROLES", "0").strip().lower() in (
     "1",

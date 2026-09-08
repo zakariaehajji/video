@@ -63,6 +63,12 @@ REACTION_CUTAWAYS = os.environ.get("WEDDING_V3_REACTION_CUTAWAYS", "0").strip().
     "true",
     "yes",
 )
+# V21: force min 2–3 true cutaways (V16 often annotated-only / zero-swap).
+REACTION_CUTAWAYS_V2 = os.environ.get("WEDDING_V3_REACTION_CUTAWAYS_V2", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 # V17: enforce ceremony arc within peak — vows → rings → kiss → exit.
 CEREMONY_NARRATIVE = os.environ.get("WEDDING_V3_CEREMONY_NARRATIVE", "0").strip().lower() in (
     "1",
@@ -204,10 +210,22 @@ def _is_intimacy_peak_shot(shot: Shot, beat: PlannedBeat | None = None) -> bool:
     hug = float(getattr(shot, "hug", 0.0) or 0.0)
     tears = float(getattr(shot, "tears", 0.0) or 0.0)
     emotion = float(getattr(shot, "emotion_score", 0.0) or 0.0)
-    if kiss >= 0.40 or hug >= 0.50:
+    kiss_floor = 0.32 if REACTION_CUTAWAYS_V2 else 0.40
+    hug_floor = 0.42 if REACTION_CUTAWAYS_V2 else 0.50
+    if kiss >= kiss_floor or hug >= hug_floor:
         return True
     # Couple tear climax without guest-reaction profile.
-    if tears >= 0.48 and emotion >= 0.52 and shot.shot_type == "couple":
+    tear_floor = 0.45 if REACTION_CUTAWAYS_V2 else 0.48
+    emo_floor = 0.50 if REACTION_CUTAWAYS_V2 else 0.52
+    if tears >= tear_floor and emotion >= emo_floor and shot.shot_type == "couple":
+        return True
+    # V21: high-emotion couple/portrait peaks also want a guest response beat.
+    if (
+        REACTION_CUTAWAYS_V2
+        and emotion >= 0.56
+        and shot.shot_type in ("couple", "portrait")
+        and int(getattr(shot, "faces", 0) or 0) >= 1
+    ):
         return True
     return False
 
@@ -675,10 +693,11 @@ def allocate(
         picks = polish_pace_breathe(picks)
     if CEREMONY_NARRATIVE:
         picks = polish_ceremony_narrative(picks, shots)
-    if REACTION_CUTAWAYS:
-        picks = polish_reaction_cutaways(picks, shots)
+    # Face-protect peaks before intercalating reactions so V21 cutaways are not undone.
     if PEAK_PAYOFF_FACES:
         picks = polish_peak_payoff_faces(picks, shots)
+    if REACTION_CUTAWAYS:
+        picks = polish_reaction_cutaways(picks, shots)
     return picks
 
 
@@ -1023,13 +1042,24 @@ def polish_ceremony_narrative(
 def polish_reaction_cutaways(
     picks: list[RankedPick],
     shots: list[Shot],
-    max_swaps: int = 4,
+    max_swaps: int | None = None,
+    min_swaps: int | None = None,
 ) -> list[RankedPick]:
     """After intimacy peak payoffs, force intercalate guest/family reaction shots.
 
     Classic wedding grammar: vow/kiss/hug → cut to guest tears/smiles.
     Keeps beat durations/timeline; only swaps the source shot.
+
+    V21 (REACTION_CUTAWAYS_V2): target 2–3 forced swaps, softer intimacy trigger,
+    emo floor on peak slots, and fallback without consecutive-source hard fail.
     """
+    if REACTION_CUTAWAYS_V2:
+        max_swaps = 4 if max_swaps is None else max_swaps
+        min_swaps = 2 if min_swaps is None else min_swaps
+    else:
+        max_swaps = 4 if max_swaps is None else max_swaps
+        min_swaps = 0 if min_swaps is None else min_swaps
+
     if len(picks) < 4 or max_swaps < 1:
         return picks
 
@@ -1038,56 +1068,95 @@ def polish_reaction_cutaways(
     if not pool:
         return picks
 
-    def _rx_key(s: Shot) -> tuple[float, float, float]:
-        # Prefer single-face tearful portraits, then crowd smiles.
+    def _rx_key(s: Shot) -> tuple[float, float, float, float]:
+        # Prefer single-face tearful portraits, then crowd smiles; keep emo for peaks.
         faces = int(getattr(s, "faces", 0) or 0)
-        portrait_bonus = 0.12 if s.shot_type == "portrait" or faces == 1 else 0.0
+        portrait_bonus = 0.14 if s.shot_type == "portrait" or faces == 1 else 0.0
         tears = float(getattr(s, "tears", 0.0) or 0.0)
         reaction = float(getattr(s, "reaction", 0.0) or 0.0)
-        return (reaction + portrait_bonus + 0.08 * tears, tears, float(s.emotion_score or 0.0))
+        emo = float(s.emotion_score or 0.0)
+        return (reaction + portrait_bonus + 0.08 * tears + 0.06 * emo, tears, emo, reaction)
 
     pool_sorted = sorted(pool, key=_rx_key, reverse=True)
     swaps = 0
     out = list(picks)
 
-    for i in range(1, len(out)):
-        if swaps >= max_swaps:
-            break
+    def _find_candidate(
+        i: int,
+        *,
+        allow_same_video: bool,
+        emo_floor: float,
+        allow_next_video: bool = False,
+    ) -> Shot | None:
         prev = out[i - 1]
         cur = out[i]
-        if not _is_intimacy_peak_shot(prev.shot, prev.beat):
-            continue
-        # Only intercalate on emotional sections (not intro bookends).
-        if cur.beat.section not in ("peak", "chorus", "verse", "bridge", "outro"):
-            continue
-        if _is_true_reaction_cutaway(cur.shot):
-            # Already a cutaway — annotate for eval visibility.
-            if "reaction-after-intimacy" not in cur.reasons:
-                cur.reasons = list(cur.reasons) + ["reaction-after-intimacy"]
-            continue
-        # Don't displace another strong kiss/hug climax unless we have a strong reaction.
-        cur_kiss = float(getattr(cur.shot, "kiss", 0.0) or 0.0)
-        if cur_kiss >= 0.42 and swaps >= 2:
-            continue
-
-        candidate = None
+        next_video = out[i + 1].shot.video if i + 1 < len(out) else ""
         for s in pool_sorted:
             if s.id in used:
                 continue
-            # Duration feasibility vs planned beat.
             if s.duration + 0.05 < min(0.7, cur.beat.dur * 0.6):
                 continue
-            # Mild consecutive-source guard.
-            if s.video == prev.shot.video:
+            if float(s.emotion_score or 0.0) < emo_floor:
                 continue
-            candidate = s
-            break
+            if not allow_same_video and s.video == prev.shot.video:
+                continue
+            if not allow_next_video and next_video and s.video == next_video:
+                continue
+            return s
+        return None
+
+    def _try_force_at(
+        i: int,
+        *,
+        allow_same_video: bool,
+        emo_floor: float,
+        allow_next_video: bool = False,
+        prefer_double_intimacy: bool = False,
+    ) -> bool:
+        nonlocal swaps, used
+        if swaps >= max_swaps:
+            return False
+        prev = out[i - 1]
+        cur = out[i]
+        # V2: intimacy trigger may ignore beat gate when scanning double-intimacy.
+        if prefer_double_intimacy:
+            if not _is_intimacy_peak_shot(prev.shot, None):
+                return False
+            if not _is_intimacy_peak_shot(cur.shot, None):
+                return False
+        elif not _is_intimacy_peak_shot(prev.shot, prev.beat):
+            return False
+        if cur.beat.section not in ("peak", "chorus", "verse", "bridge", "outro"):
+            return False
+        if _is_true_reaction_cutaway(cur.shot):
+            if "reaction-after-intimacy" not in cur.reasons:
+                cur.reasons = list(cur.reasons) + ["reaction-after-intimacy"]
+            return False
+        # Never displace a strong kiss climax.
+        cur_kiss = float(getattr(cur.shot, "kiss", 0.0) or 0.0)
+        if cur_kiss >= 0.40:
+            return False
+        cur_hug = float(getattr(cur.shot, "hug", 0.0) or 0.0)
+        if not REACTION_CUTAWAYS_V2 and cur_kiss >= 0.42 and swaps >= 2:
+            return False
+        # Only protect extreme hug climaxes once min forced grammar is met.
+        if REACTION_CUTAWAYS_V2 and cur_hug >= 0.68 and swaps >= min_swaps:
+            return False
+
+        candidate = _find_candidate(
+            i,
+            allow_same_video=allow_same_video,
+            emo_floor=emo_floor,
+            allow_next_video=allow_next_video,
+        )
         if candidate is None:
-            continue
+            return False
 
         used.discard(cur.shot.id)
         used.add(candidate.id)
         reasons = list(cur.reasons) + ["reaction-cutaway-forced", "reaction-after-intimacy"]
+        if REACTION_CUTAWAYS_V2:
+            reasons.append("reaction-cutaway-v2")
         out[i] = RankedPick(
             beat=cur.beat,
             shot=candidate,
@@ -1095,6 +1164,49 @@ def polish_reaction_cutaways(
             reasons=reasons,
         )
         swaps += 1
+        return True
+
+    # Pass 1: strict consecutive-source + mild peak emo floor (V21) / legacy (V16).
+    peak_emo_floor = 0.36 if REACTION_CUTAWAYS_V2 else 0.0
+    for i in range(1, len(out)):
+        if swaps >= max_swaps:
+            break
+        floor = peak_emo_floor if (out[i].beat.is_peak or out[i].beat.section == "peak") else 0.0
+        _try_force_at(i, allow_same_video=False, emo_floor=floor)
+
+    # Pass 2 (V21): prioritize breaking intimacy→intimacy stacks (vow/hug spray).
+    if REACTION_CUTAWAYS_V2 and swaps < min_swaps:
+        for i in range(1, len(out)):
+            if swaps >= min_swaps or swaps >= max_swaps:
+                break
+            _try_force_at(
+                i,
+                allow_same_video=False,
+                emo_floor=0.34,
+                prefer_double_intimacy=True,
+            )
+
+    # Pass 3: relax video adjacency guards.
+    if REACTION_CUTAWAYS_V2 and swaps < min_swaps:
+        for i in range(1, len(out)):
+            if swaps >= min_swaps or swaps >= max_swaps:
+                break
+            _try_force_at(
+                i,
+                allow_same_video=True,
+                emo_floor=0.30,
+                allow_next_video=True,
+                prefer_double_intimacy=True,
+            )
+        for i in range(1, len(out)):
+            if swaps >= min_swaps or swaps >= max_swaps:
+                break
+            _try_force_at(
+                i,
+                allow_same_video=True,
+                emo_floor=0.0,
+                allow_next_video=True,
+            )
 
     return out
 
