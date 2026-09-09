@@ -189,6 +189,13 @@ def critique_plan(
         pacing = max(0.35, pacing - 0.12)
         problems.append("cut-every-beat spray (craft)")
         recs.append("prefer phrase/downbeat holds; denser cuts only on chorus/peak")
+    # 20min course sprint: phrase-hold too weak when overall + peaks are both short.
+    peak_durs = [p.beat.dur for p in peak_slots] if peak_slots else []
+    mean_peak = (sum(peak_durs) / len(peak_durs)) if peak_durs else mean_d
+    if mean_d < 1.3 and mean_peak < 2.0:
+        pacing = max(0.35, pacing - 0.08)
+        problems.append("phrase-hold too weak (course sprint)")
+        recs.append("raise min/peak holds; cut on phrases not every beat")
 
     # wedding feeling
     tags = set()
@@ -292,6 +299,20 @@ def critique_plan(
         else:
             problems.append("craft peak_hold not met with intimate shots")
             craft_bonus -= 0.02
+
+    # Free-course Kuleshov: intimacy should often be followed by a readable face.
+    for a, b in zip(picks, picks[1:]):
+        a_int = max(
+            float(getattr(a.shot, "kiss", 0.0) or 0.0),
+            float(getattr(a.shot, "hug", 0.0) or 0.0),
+            float(getattr(a.shot, "tears", 0.0) or 0.0),
+        )
+        if a_int >= 0.45 and a.beat.is_peak:
+            if b.shot.faces < 1 and float(getattr(b.shot, "reaction", 0.0) or 0.0) < 0.4:
+                problems.append("missing reaction after intimacy (Kuleshov)")
+                recs.append("follow kiss/hug/tears with a portrait or guest reaction")
+                craft_bonus -= 0.02
+                break
 
     # peak too early
     if peak_slots:

@@ -55,6 +55,15 @@ Reject / down-rank:
 - Prefer similar color/temperature across adjacent clips.
 - Avoid jarring day/night or indoor/outdoor jumps without a bridge detail.
 - Alternate scale: wide → medium → close, not close → close → close.
+- **Kuleshov**: after kiss/hug/tears, prefer a face/reaction so emotion is *read between shots*.
+- **Accelerate the day**: longer holds early; denser cuts only in celebration sections.
+
+## Free course curriculum
+
+Studied free/open montage pedagogy (continuity, Kuleshov, pacing, wedding highlight arcs).
+See [`docs/FREE_MONTAGE_COURSE.md`](FREE_MONTAGE_COURSE.md).
+
+New templates: `course_kuleshov_peak`, `course_accelerate_day`, `course_social_60`.
 
 ## Template recipes
 

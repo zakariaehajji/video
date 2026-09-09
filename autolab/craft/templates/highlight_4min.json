@@ -1,0 +1,27 @@
+{
+  "id": "highlight_4min",
+  "title": "4-minute wedding highlight resume",
+  "style": "emotional",
+  "target_duration": 240,
+  "description": "Story-first 4min resume from raw stock clips: prep to peak to celebration to resolve.",
+  "min_shot_dur": 2.2,
+  "max_shot_dur": 5.0,
+  "peak_min_dur": 3.2,
+  "prefer_xfade_sections": ["intro", "outro", "build", "verse"],
+  "hard_cut_on_peak": true,
+  "role_arc": {
+    "intro": ["detail", "wide", "portrait"],
+    "build": ["portrait", "detail", "couple"],
+    "verse": ["couple", "portrait", "detail"],
+    "chorus": ["couple", "portrait", "motion"],
+    "peak": ["couple", "portrait", "couple"],
+    "outro": ["wide", "couple", "detail"]
+  },
+  "ranking_profile": "A_emotion",
+  "pace_hold": true,
+  "peak_hold": true,
+  "phrase_sync": true,
+  "dense_chorus": false,
+  "title_cards": true,
+  "pack": "delivery"
+}

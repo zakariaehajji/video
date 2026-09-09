@@ -282,9 +282,15 @@ def render_montage(
 
     audio = Path(audio)
     out.parent.mkdir(parents=True, exist_ok=True)
+    # Match audio bed to assembled picture length (was hardcoded atrim=0:38).
+    try:
+        vid_dur = max(1.0, _probe_duration(silent))
+    except Exception:
+        vid_dur = float(sum(max(0.35, float(p.beat.dur)) for p in picks))
     run([
         "ffmpeg", "-y", "-i", str(silent), "-i", str(audio),
-        "-filter_complex", "[1:a]atrim=0:38,loudnorm=I=-14:TP=-1.5:LRA=11[a]",
+        "-filter_complex",
+        f"[1:a]atrim=0:{vid_dur:.3f},asetpts=PTS-STARTPTS,loudnorm=I=-14:TP=-1.5:LRA=11[a]",
         "-map", "0:v:0", "-map", "[a]",
         "-c:v", "libx264", "-preset", "fast", "-crf", "17",
         "-c:a", "aac", "-b:a", "192k", "-shortest",

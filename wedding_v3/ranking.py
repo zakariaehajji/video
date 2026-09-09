@@ -113,6 +113,15 @@ KISS_ENSURE_SWAP = os.environ.get("WEDDING_V3_KISS_ENSURE_SWAP", "0").strip().lo
     "true",
     "yes",
 )
+# V27: relocate the timeline's strongest kiss into the late-peak climax window.
+# No new pool swaps (V25 ensure-swap REJECT 8.81 vs V21 8.84).
+KISS_CLIMAX_REPOSITION = os.environ.get(
+    "WEDDING_V3_KISS_CLIMAX_REPOSITION", "0"
+).strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # Montage-craft heuristics (always on; modest deltas — does not replace weight profiles).
 CRAFT_SHOT_HEURISTICS = os.environ.get("WEDDING_V3_CRAFT_SHOTS", "1").strip().lower() not in (
@@ -521,6 +530,20 @@ def score_shot(
                 # Soft demote "pretty but empty" peak faces.
                 peak *= 0.93
                 reasons.append("craft-flat-peak-face")
+        # Free-course Kuleshov: a reaction/portrait after intimacy creates meaning between shots.
+        if recent_shots and (beat.section in ("peak", "chorus", "outro") or beat.is_peak):
+            prev = recent_shots[-1]
+            prev_int = max(
+                float(getattr(prev, "kiss", 0.0) or 0.0),
+                float(getattr(prev, "hug", 0.0) or 0.0),
+                float(getattr(prev, "tears", 0.0) or 0.0),
+            )
+            if prev_int >= 0.40 and shot.faces >= 1 and (
+                reaction >= 0.45 or shot.shot_type == "portrait" or beat.role == "portrait"
+            ):
+                emotion = min(1.0, emotion + 0.10)
+                story = min(1.0, story + 0.08)
+                reasons.append("course-kuleshov-reaction")
 
     # V12: music-section ↔ story-role / shot-type grammar (selection bias, modest deltas).
     if MUSIC_SECTION_ROLES:
@@ -863,6 +886,9 @@ def allocate(
     # V25 ensure-swap before hold so a forced climax kiss can then linger if both on.
     if KISS_ENSURE_SWAP:
         picks = polish_kiss_ensure_swap(picks, shots)
+    # V27: reorder existing kiss into late climax — no unused-pool injection.
+    if KISS_CLIMAX_REPOSITION:
+        picks = polish_kiss_climax_reposition(picks)
     # Kiss hold last so face/reaction swaps do not undo climax duration.
     if KISS_HOLD:
         picks = polish_kiss_hold(picks, shots)
@@ -1881,6 +1907,107 @@ def _kiss_climax_score(shot: Shot) -> float:
     if shot.shot_type in ("couple", "portrait") or shot.composition == "close":
         score += 0.03
     return float(score)
+
+
+def polish_kiss_climax_reposition(
+    picks: list[RankedPick],
+    kiss_floor: float = 0.36,
+) -> list[RankedPick]:
+    """Move the timeline's strongest kiss into the late-peak climax window.
+
+    Pure in-timeline reorder: does not inject unused pool shots (V25 path).
+    Ceremony grammar: vows/intimacy build → kiss climax late in peak → exit.
+    """
+    if len(picks) < 6:
+        return picks
+
+    out = list(picks)
+    peak_idxs = [i for i, p in enumerate(out) if p.beat.is_peak or p.beat.section == "peak"]
+    if len(peak_idxs) < 4:
+        return picks
+
+    # Late climax: final third of peak before the last exit beat.
+    if len(peak_idxs) >= 6:
+        late_start = (2 * len(peak_idxs)) // 3
+        climax_slots = peak_idxs[late_start:-1]
+    else:
+        climax_slots = peak_idxs[len(peak_idxs) // 2 : -1] or peak_idxs[1:-1]
+    if not climax_slots:
+        return picks
+
+    # Strongest kiss already selected (prefer peak; allow near-kiss floor).
+    kiss_idxs = [
+        i
+        for i, p in enumerate(out)
+        if float(getattr(p.shot, "kiss", 0.0) or 0.0) >= kiss_floor
+    ]
+    if not kiss_idxs:
+        return picks
+
+    src = max(kiss_idxs, key=lambda i: _kiss_climax_score(out[i].shot))
+    src_kiss = float(getattr(out[src].shot, "kiss", 0.0) or 0.0)
+    if src_kiss < kiss_floor:
+        return picks
+
+    # Already sitting in late climax — annotate only.
+    if src in climax_slots:
+        reasons = list(out[src].reasons or [])
+        if "kiss-climax-reposition-ok" not in reasons:
+            reasons.append("kiss-climax-reposition-ok")
+            out[src] = RankedPick(
+                beat=out[src].beat,
+                shot=out[src].shot,
+                score=out[src].score,
+                reasons=reasons,
+            )
+        return out
+
+    def _target_key(i: int) -> tuple:
+        cur = out[i]
+        reasons = cur.reasons or []
+        return (
+            1 if "reaction-cutaway-forced" in reasons else 0,
+            1 if "kiss-climax-reposition" in reasons else 0,
+            _kiss_climax_score(cur.shot),
+            _emotion_intensity(cur.shot),
+        )
+
+    # Prefer a late slot that is not a forced reaction and not a stronger kiss.
+    targets = sorted(climax_slots, key=_target_key)
+    for ti in targets:
+        if ti == src:
+            continue
+        cur = out[ti]
+        if "reaction-cutaway-forced" in (cur.reasons or []):
+            continue
+        cur_kiss = float(getattr(cur.shot, "kiss", 0.0) or 0.0)
+        cur_score = _kiss_climax_score(cur.shot)
+        src_score = _kiss_climax_score(out[src].shot)
+        if cur_kiss >= 0.40 and cur_score >= src_score - 0.01:
+            continue
+        # Duration feasibility both ways.
+        if out[src].shot.duration + 0.05 < min(0.7, cur.beat.dur * 0.55):
+            continue
+        if cur.shot.duration + 0.05 < min(0.7, out[src].beat.dur * 0.55):
+            continue
+
+        src_pick = out[src]
+        dst_pick = out[ti]
+        out[ti] = RankedPick(
+            beat=dst_pick.beat,
+            shot=src_pick.shot,
+            score=src_pick.score,
+            reasons=list(src_pick.reasons or []) + ["kiss-climax-reposition"],
+        )
+        out[src] = RankedPick(
+            beat=src_pick.beat,
+            shot=dst_pick.shot,
+            score=dst_pick.score,
+            reasons=list(dst_pick.reasons or []) + ["kiss-climax-displaced"],
+        )
+        return out
+
+    return out
 
 
 def polish_kiss_ensure_swap(

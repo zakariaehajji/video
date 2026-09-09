@@ -1,8 +1,0 @@
-{
-  "blocker": null,
-  "cleared_at": "2026-09-08T15:35:32.190522+00:00",
-  "note": "V26_visual_cq_soft_v3 REJECT 8.63 vs V21 8.84 polish_ok=True",
-  "best_version": "V21_reaction_cutaways_v2",
-  "best_score": 8.84,
-  "renders_executed": true
-}

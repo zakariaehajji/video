@@ -56,4 +56,10 @@ __pycache__/
 autolab/state/lab.db
 autolab/state/lab_state.json
 autolab/state/task_queue.json
+autolab/pending_jobs.json
 autolab/results/*.mp4
+autolab/results/BLOCKER.json
+autolab/results/session_logs/
+Output/
+scripts_probe_media*.py
+*_probe_*.py

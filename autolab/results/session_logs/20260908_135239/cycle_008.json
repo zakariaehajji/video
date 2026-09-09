@@ -1,7 +1,0 @@
-{
-  "cycle": 8,
-  "result": "SUCCESS",
-  "timestamp": "2026-09-08T15:04:19.972508",
-  "remaining_seconds": 82099.60787272453,
-  "git_status": "M autolab/datasets/manifest.json\n M autolab/pending_jobs.json\n M autolab/results/BLOCKER.json\n M autolab/results/session_logs/20260908_135239/supervisor.log\n M autolab/results/session_logs/mixkit_download_1000.log\n M autolab/run_craft_tournament.py\n M docs/MONTAGE_CRAFT.md\n M wedding_v3/ranking.py\n M wedding_v3/shots.py\n?? autolab/record_comparable_decision.py\n?? autolab/results/session_logs/20260908_135239/agent_008.log\n?? autolab/results/session_logs/20260908_135239/prompt_008.txt\n?? autolab/results/session_logs/craft_tournament.log\n?? autolab/run_v18_visual_soft_v2.py"
-}

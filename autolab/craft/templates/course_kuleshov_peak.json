@@ -1,0 +1,27 @@
+{
+  "id": "course_kuleshov_peak",
+  "title": "Course: Kuleshov peak (intimacy then reaction)",
+  "style": "emotional",
+  "target_duration": 38,
+  "description": "From free montage pedagogy: land intimacy, then a face/reaction so meaning comes from juxtaposition.",
+  "min_shot_dur": 2.0,
+  "max_shot_dur": 4.5,
+  "peak_min_dur": 3.0,
+  "prefer_xfade_sections": ["intro", "outro", "build"],
+  "hard_cut_on_peak": true,
+  "role_arc": {
+    "intro": ["detail", "wide", "portrait"],
+    "build": ["portrait", "detail", "couple"],
+    "verse": ["couple", "portrait", "detail"],
+    "chorus": ["couple", "portrait", "motion"],
+    "peak": ["couple", "portrait", "couple", "portrait"],
+    "outro": ["wide", "couple", "detail"]
+  },
+  "ranking_profile": "C_peak_payoff",
+  "pace_hold": true,
+  "peak_hold": true,
+  "phrase_sync": true,
+  "dense_chorus": false,
+  "title_cards": true,
+  "pack": "free_course"
+}
