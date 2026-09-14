@@ -1,0 +1,28 @@
+{
+  "id": "day_story_3act",
+  "title": "Wedding day three-act story",
+  "style": "emotional",
+  "target_duration": 90,
+  "description": "Intro → before (prep) → during (ceremony) → after (party) → outro with phase transitions.",
+  "min_shot_dur": 2.6,
+  "max_shot_dur": 4.5,
+  "peak_min_dur": 3.4,
+  "prefer_xfade_sections": ["intro", "outro"],
+  "hard_cut_on_peak": true,
+  "story_phases": true,
+  "phase_role_arc": {
+    "intro": ["wide", "detail", "wide"],
+    "before": ["detail", "portrait", "detail", "wide", "portrait"],
+    "during": ["portrait", "couple", "detail", "couple", "portrait", "couple"],
+    "after": ["couple", "motion", "portrait", "couple", "wide"],
+    "outro": ["wide", "couple", "detail", "wide"]
+  },
+  "soft_xfade_phases": ["intro", "before", "outro"],
+  "hard_cut_phases": ["during", "after"],
+  "ranking_profile": "A_emotion",
+  "pace_hold": true,
+  "peak_hold": true,
+  "phrase_sync": true,
+  "title_cards": true,
+  "pack": "story"
+}

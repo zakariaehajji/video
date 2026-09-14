@@ -14,6 +14,7 @@ from wedding_v3.shots import build_library_pool, build_pool, load_pool
 from wedding_v3.story import available_roles_from_shots, plan_story
 from wedding_v3 import titles as titles_mod
 from wedding_v3.titles import TOTAL_TARGET, content_duration
+from wedding_v3.wedding_gate import WEDDING_ONLY, filter_orientation, filter_wedding_shots
 
 ROOT = Path(__file__).resolve().parents[1]
 VID_DIR = ROOT / "resource" / "video" / "wedding_web"
@@ -79,6 +80,7 @@ def run_candidates(
                         {
                             "role": p.beat.role,
                             "section": p.beat.section,
+                            "story_phase": getattr(p.beat, "story_phase", "") or "",
                             "dur": p.beat.dur,
                             "slowmo": p.beat.want_slowmo,
                             "xfade": p.beat.want_xfade,
@@ -128,14 +130,52 @@ def run_candidates(
                 td = float(craft.get("target_duration") or story_dur)
                 if want_titles:
                     td = titles_mod.content_duration(td)
+                craft_shots = shots
+                if bool(craft.get("wedding_only")) or WEDDING_ONLY:
+                    before = len(craft_shots)
+                    craft_shots = filter_wedding_shots(craft_shots)
+                    print(
+                        f"  wedding_only filter: {before} → {len(craft_shots)} shots",
+                        flush=True,
+                    )
+                from wedding_v3.wedding_gate import ORIENTATION as _ENV_ORIENT
+
+                orient_mode = str(craft.get("orientation") or _ENV_ORIENT or "any")
+                if orient_mode and orient_mode not in ("any", "all", ""):
+                    before_o = len(craft_shots)
+                    craft_shots = filter_orientation(craft_shots, orient_mode)
+                    print(
+                        f"  orientation filter ({orient_mode}): {before_o} → {len(craft_shots)} shots",
+                        flush=True,
+                    )
+                roles_c = available_roles_from_shots(craft_shots)
                 beats = plan_story(
                     analysis,
-                    roles,
+                    roles_c,
                     target_duration=td,
                     style=style,
                     craft=craft,
                 )
-                picks = allocate(beats, shots, profile=profile)
+                max_pv = craft.get("max_per_video")
+                max_pv_i = int(max_pv) if max_pv is not None else None
+                picks = allocate(
+                    beats, craft_shots, profile=profile, max_per_video=max_pv_i
+                )
+                # Delivery: honor craft ceremony quota after allocate polish.
+                if bool(craft.get("wedding_only")) or WEDDING_ONLY:
+                    from wedding_v3.ranking import (
+                        polish_diversify_sources,
+                        polish_force_wedding_web,
+                    )
+
+                    force_n = int(craft.get("force_wedding_web_min") or 18)
+                    per_v = int(craft.get("max_per_video") or 2)
+                    picks = polish_force_wedding_web(
+                        picks, craft_shots, min_count=force_n, max_per_video=min(2, per_v)
+                    )
+                    picks = polish_diversify_sources(
+                        picks, craft_shots, max_per_video=max(2, min(3, per_v))
+                    )
                 critique = critique_plan(picks, profile=profile, craft=craft)
                 _emit(
                     style,
@@ -165,8 +205,20 @@ def run_candidates(
         print("  iterating: reinforcing peak emotion picks", flush=True)
         picks = best["picks"]
         peak_idxs = [i for i, p in enumerate(picks) if p.beat.is_peak]
+        # Never re-inject lifestyle / wrong-orientation stock into delivery films.
+        upgrade_pool = shots
+        if WEDDING_ONLY or best.get("craft_id") == "highlight_4min":
+            upgrade_pool = filter_wedding_shots(shots)
+            from wedding_v3.wedding_gate import ORIENTATION as _ENV_ORIENT
+
+            orient_mode = str(_ENV_ORIENT or "landscape")
+            if best.get("craft_id") == "highlight_4min":
+                orient_mode = "landscape"
+            if orient_mode and orient_mode not in ("any", "all", ""):
+                upgrade_pool = filter_orientation(upgrade_pool, orient_mode)
+            print(f"  iter upgrade pool filtered: {len(upgrade_pool)}", flush=True)
         emotion_shots = sorted(
-            shots,
+            upgrade_pool,
             key=lambda s: (
                 max(
                     float(getattr(s, "tears", 0.0) or 0.0),

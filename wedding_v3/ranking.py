@@ -8,6 +8,8 @@ from typing import Sequence
 
 from wedding_v3.shots import Shot, color_distance
 from wedding_v3.story import PlannedBeat
+from wedding_v3.story_phases import STORY_PHASES, phase_fit, story_phases_enabled
+from wedding_v3.wedding_gate import WEDDING_ONLY, wedding_fit
 
 # V9 experiment gate: prefer sharper / higher cinematic shots to lift visual_quality.
 VISUAL_BOOST = os.environ.get("WEDDING_V3_VISUAL_BOOST", "0").strip().lower() in (
@@ -319,6 +321,15 @@ def score_shot(
     emotion = shot.emotion_score
     peak = shot.emotional_peak_score if beat.is_peak else shot.emotional_peak_score * 0.4
     story = _role_match(shot, beat.role)
+    phase = getattr(beat, "story_phase", "") or ""
+    if phase:
+        pf = phase_fit(shot, phase)
+        story = min(1.0, 0.55 * story + 0.45 * pf)
+        if pf >= 0.7:
+            reasons.append(f"phase-{phase}-fit")
+        elif pf <= 0.35:
+            reasons.append(f"phase-{phase}-mismatch")
+            emotion *= 0.85
     # music fit: higher emotion on high energy, calm quality on low energy
     if beat.energy > 0.65:
         music = 0.55 * emotion + 0.45 * (1.0 if shot.camera_motion != "static" else 0.4)
@@ -422,6 +433,18 @@ def score_shot(
     elif COLOR_CONTINUITY and recent_videos.count(shot.video) >= 2:
         variety = 0.50
         reasons.append("source-overuse")
+
+    # Delivery: prefer real wedding intimacy over lifestyle stock.
+    if WEDDING_ONLY:
+        wf = wedding_fit(shot)
+        emotion = min(1.0, emotion + 0.18 * min(1.0, wf / 1.2))
+        if wf >= 0.9:
+            reasons.append("wedding-fit-high")
+            peak = min(1.0, peak + 0.12)
+        elif wf < 0.35:
+            reasons.append("wedding-fit-low")
+            emotion *= 0.72
+            visual *= 0.85
 
     # peak payoff boost
     if beat.is_peak and shot.smile > 0.35 and shot.faces >= 1:
@@ -769,6 +792,7 @@ def allocate(
     beats: list[PlannedBeat],
     shots: list[Shot],
     profile: str = "C_peak_payoff",
+    max_per_video: int | None = None,
 ) -> list[RankedPick]:
     weights = _effective_weights(profile)
     picks: list[RankedPick] = []
@@ -776,6 +800,10 @@ def allocate(
     recent_ids: list[str] = []
     recent_shots: list[Shot] = []
     used_ids: set[str] = set()
+    video_uses: dict[str, int] = {}
+    # Long delivery films: hard-cap source reuse (lifestyle collage failure mode).
+    if max_per_video is None:
+        max_per_video = 3 if (WEDDING_ONLY or len(beats) >= 40) else 8
 
     for beat in beats:
         best: RankedPick | None = None
@@ -784,6 +812,10 @@ def allocate(
         unused = [s for s in shots if s.id not in used_ids]
         if unused:
             candidates = unused
+        # Cap per-source uses for long films.
+        capped = [s for s in candidates if video_uses.get(s.video, 0) < max_per_video]
+        if capped:
+            candidates = capped
         # V9v2: do NOT hard-filter the pool (V9v1 filtered top-55% CQ → source repeats).
         # Soft floors/boosts in score_shot already prefer high-CQ shots.
         scored = []
@@ -794,6 +826,11 @@ def allocate(
             sc, reasons = score_shot(
                 s, beat, weights, recent_videos, recent_ids, recent_shots
             )
+            # Global reuse penalty beyond the short recent window.
+            uses = video_uses.get(s.video, 0)
+            if uses >= 2:
+                sc *= max(0.35, 1.0 - 0.22 * uses)
+                reasons = list(reasons) + [f"video-uses-{uses}"]
             scored.append((sc, s, reasons))
         if not scored:
             # fallback any
@@ -806,7 +843,7 @@ def allocate(
         sc, s, reasons = scored[0]
         # V18 / V24 / V26: hard consecutive-source skip when a near-tie alternate exists.
         if (
-            (VISUAL_SOFT_V2 or VISUAL_SOFT_V3 or CONTINUITY_SOFT_V2)
+            (VISUAL_SOFT_V2 or VISUAL_SOFT_V3 or CONTINUITY_SOFT_V2 or WEDDING_ONLY)
             and recent_videos
             and s.video == recent_videos[-1]
             and len(scored) > 1
@@ -818,6 +855,9 @@ def allocate(
             elif VISUAL_SOFT_V3 and not VISUAL_SOFT_V2:
                 thresh = 0.94
                 tag = "softv3-hard-consec-skip"
+            elif WEDDING_ONLY:
+                thresh = 0.88
+                tag = "wedding-hard-consec-skip"
             else:
                 thresh = 0.92
                 tag = "softv2-hard-consec-skip"
@@ -846,6 +886,7 @@ def allocate(
         pick = RankedPick(beat=beat, shot=s, score=sc, reasons=reasons)
         picks.append(pick)
         used_ids.add(s.id)
+        video_uses[s.video] = video_uses.get(s.video, 0) + 1
         recent_videos.append(s.video)
         recent_ids.append(s.id)
         recent_shots.append(s)
@@ -864,6 +905,8 @@ def allocate(
         picks = polish_pace_breathe(picks)
     if CEREMONY_NARRATIVE:
         picks = polish_ceremony_narrative(picks, shots)
+    if any(getattr(p.beat, "story_phase", "") for p in picks) or STORY_PHASES:
+        picks = polish_story_day_arc(picks, shots)
     # Face-protect peaks before intercalating reactions so V21 cutaways are not undone.
     if PEAK_PAYOFF_FACES:
         picks = polish_peak_payoff_faces(picks, shots)
@@ -892,7 +935,215 @@ def allocate(
     # Kiss hold last so face/reaction swaps do not undo climax duration.
     if KISS_HOLD:
         picks = polish_kiss_hold(picks, shots)
+    if WEDDING_ONLY:
+        picks = polish_force_wedding_web(picks, shots, min_count=18, max_per_video=2)
+        picks = polish_diversify_sources(picks, shots, max_per_video=3)
     return picks
+
+
+def polish_story_day_arc(
+    picks: list[RankedPick],
+    shots: list[Shot],
+    max_swaps: int = 14,
+) -> list[RankedPick]:
+    """Swap mismatched shots so before/during/after chronology reads clearly."""
+    if not picks:
+        return picks
+    if not any(getattr(p.beat, "story_phase", "") for p in picks):
+        return picks
+
+    out = list(picks)
+    used = {p.shot.id for p in out}
+    swaps = 0
+
+    # Prefer kiss/hug in during peaks; demote them from intro/before when alternates exist.
+    for i, p in enumerate(out):
+        if swaps >= max_swaps:
+            break
+        phase = getattr(p.beat, "story_phase", "") or ""
+        if not phase:
+            continue
+        cur = phase_fit(p.shot, phase)
+        if cur >= 0.55 and not (
+            phase in ("intro", "before") and float(p.shot.kiss or 0) >= 0.45
+        ):
+            continue
+        best = None
+        best_sc = cur
+        for s in shots:
+            if s.id in used:
+                continue
+            if s.duration + 0.05 < min(0.7, p.beat.dur * 0.6):
+                continue
+            sc = phase_fit(s, phase)
+            if phase == "during" and (float(s.kiss or 0) >= 0.4 or float(s.hug or 0) >= 0.45):
+                sc += 0.12
+            if phase in ("intro", "before") and float(s.kiss or 0) >= 0.4:
+                sc -= 0.2
+            if sc > best_sc + 0.08:
+                best_sc = sc
+                best = s
+        if best is None:
+            continue
+        used.discard(p.shot.id)
+        used.add(best.id)
+        out[i] = RankedPick(
+            beat=p.beat,
+            shot=best,
+            score=p.score + 0.04,
+            reasons=list(p.reasons) + [f"story-day-{phase}"],
+        )
+        swaps += 1
+    return out
+
+
+def polish_force_wedding_web(
+    picks: list[RankedPick],
+    shots: list[Shot],
+    min_count: int = 18,
+    max_per_video: int = 2,
+) -> list[RankedPick]:
+    """Guarantee curated wedding_web ceremony clips appear, diversified by source."""
+    from pathlib import Path
+
+    def _is_ww(s: Shot) -> bool:
+        return Path(s.video).name.lower().startswith("wedding_")
+
+    def _score(s: Shot) -> float:
+        return (
+            float(s.emotion_score or 0)
+            + 0.35 * float(s.kiss or 0)
+            + 0.25 * float(s.hug or 0)
+            + 0.2 * float(s.cinematic_quality or 0)
+        )
+
+    out = list(picks)
+    used_ids = {p.shot.id for p in out}
+    video_uses: dict[str, int] = {}
+    for p in out:
+        video_uses[p.shot.video] = video_uses.get(p.shot.video, 0) + 1
+
+    # Round-robin best unused shot per wedding_web video.
+    by_video: dict[str, list[Shot]] = {}
+    for s in shots:
+        if not _is_ww(s) or s.id in used_ids:
+            continue
+        by_video.setdefault(s.video, []).append(s)
+    for v in by_video:
+        by_video[v].sort(key=_score, reverse=True)
+
+    order = sorted(by_video.keys(), key=lambda v: _score(by_video[v][0]), reverse=True)
+    pool: list[Shot] = []
+    # Passes over videos until each hits max_per_video or pool empty.
+    caps = {v: 0 for v in order}
+    progressed = True
+    while progressed:
+        progressed = False
+        for v in order:
+            if caps[v] >= max_per_video:
+                continue
+            cands = by_video.get(v) or []
+            if not cands:
+                continue
+            s = cands.pop(0)
+            pool.append(s)
+            caps[v] += 1
+            progressed = True
+
+    have = sum(1 for p in out if _is_ww(p.shot))
+    need = max(0, min_count - have)
+    if need <= 0 or not pool:
+        return out
+
+    # Bookend + climax slots: early prep, mid ceremony, late climax.
+    n = len(out)
+    prefer = set()
+    for frac in (0.08, 0.18, 0.35, 0.48, 0.58, 0.68, 0.78, 0.88):
+        prefer.add(min(n - 1, max(0, int(n * frac))))
+    swap_idxs = [
+        i
+        for i, p in enumerate(out)
+        if not _is_ww(p.shot)
+        and p.beat.role in ("couple", "portrait", "wide", "detail")
+        and video_uses.get(p.shot.video, 0) >= 1
+    ]
+    swap_idxs.sort(key=lambda i: (0 if i in prefer else 1, abs(i - int(n * 0.55))))
+
+    pi = 0
+    for i in swap_idxs:
+        if need <= 0 or pi >= len(pool):
+            break
+        s = pool[pi]
+        pi += 1
+        # Respect global per-video cap after insert.
+        if video_uses.get(s.video, 0) >= max_per_video:
+            continue
+        old = out[i].shot.video
+        video_uses[old] = max(0, video_uses.get(old, 0) - 1)
+        video_uses[s.video] = video_uses.get(s.video, 0) + 1
+        out[i] = RankedPick(
+            beat=out[i].beat,
+            shot=s,
+            score=out[i].score + 0.05,
+            reasons=list(out[i].reasons) + ["force-wedding-web"],
+        )
+        need -= 1
+    return out
+
+
+def polish_diversify_sources(
+    picks: list[RankedPick],
+    shots: list[Shot],
+    max_per_video: int = 3,
+) -> list[RankedPick]:
+    """Swap overused sources for unused near-ties (delivery collage fix)."""
+    from pathlib import Path
+
+    out = list(picks)
+    used_ids = {p.shot.id for p in out}
+    counts: dict[str, int] = {}
+    for p in out:
+        counts[p.shot.video] = counts.get(p.shot.video, 0) + 1
+
+    def _alt_score(s: Shot, beat) -> float:
+        return (
+            float(s.emotion_score or 0)
+            + 0.3 * float(s.cinematic_quality or 0)
+            + (0.25 if s.shot_type == beat.role or beat.role in (s.story_roles or []) else 0.0)
+            + 0.2 * float(s.kiss or 0)
+            + 0.15 * float(s.hug or 0)
+        )
+
+    for i, p in enumerate(out):
+        if counts.get(p.shot.video, 0) <= max_per_video:
+            continue
+        # Find alternate unused shot for this beat.
+        best = None
+        best_sc = -1.0
+        for s in shots:
+            if s.id in used_ids:
+                continue
+            if counts.get(s.video, 0) >= max_per_video:
+                continue
+            if s.duration + 0.05 < min(0.7, p.beat.dur * 0.6):
+                continue
+            sc = _alt_score(s, p.beat)
+            if sc > best_sc:
+                best_sc = sc
+                best = s
+        if best is None:
+            continue
+        counts[p.shot.video] -= 1
+        counts[best.video] = counts.get(best.video, 0) + 1
+        used_ids.discard(p.shot.id)
+        used_ids.add(best.id)
+        out[i] = RankedPick(
+            beat=p.beat,
+            shot=best,
+            score=p.score,
+            reasons=list(p.reasons) + ["diversify-source"],
+        )
+    return out
 
 
 def _peak_face_payoff(shot: Shot) -> float:
@@ -1352,6 +1603,7 @@ def polish_ceremony_narrative(
                     want_slowmo=cur.beat.want_slowmo,
                     want_xfade=cur.beat.want_xfade,
                     is_peak=cur.beat.is_peak,
+                    story_phase=getattr(cur.beat, "story_phase", "") or "",
                 )
             out[gi] = RankedPick(
                 beat=beat,
@@ -1721,6 +1973,7 @@ def polish_pace_breathe(
             want_slowmo=p.beat.want_slowmo,
             want_xfade=p.beat.want_xfade,
             is_peak=p.beat.is_peak,
+            story_phase=getattr(p.beat, "story_phase", "") or "",
         )
         new_picks.append(RankedPick(beat=beat, shot=p.shot, score=p.score, reasons=reasons))
         t0 = t1
@@ -1857,6 +2110,7 @@ def polish_peak_emotion_holds(
             want_slowmo=slow,
             want_xfade=p.beat.want_xfade and not p.beat.is_peak,
             is_peak=p.beat.is_peak,
+            story_phase=getattr(p.beat, "story_phase", "") or "",
         )
         new_picks.append(RankedPick(beat=beat, shot=p.shot, score=p.score, reasons=reasons))
         t0 = t1
@@ -1887,6 +2141,7 @@ def polish_peak_emotion_holds(
                     want_slowmo=False,
                     want_xfade=p.beat.want_xfade,
                     is_peak=p.beat.is_peak,
+                    story_phase=getattr(p.beat, "story_phase", "") or "",
                 )
                 trimmed.append(RankedPick(beat=beat, shot=p.shot, score=p.score, reasons=p.reasons))
             else:
@@ -2346,6 +2601,7 @@ def polish_kiss_hold(
             want_slowmo=slow,
             want_xfade=p.beat.want_xfade and not p.beat.is_peak,
             is_peak=p.beat.is_peak,
+            story_phase=getattr(p.beat, "story_phase", "") or "",
         )
         new_picks.append(RankedPick(beat=beat, shot=p.shot, score=p.score, reasons=reasons))
         t0 = t1
@@ -2376,6 +2632,7 @@ def polish_kiss_hold(
                     want_slowmo=False,
                     want_xfade=p.beat.want_xfade,
                     is_peak=p.beat.is_peak,
+                    story_phase=getattr(p.beat, "story_phase", "") or "",
                 )
                 trimmed.append(RankedPick(beat=beat, shot=p.shot, score=p.score, reasons=p.reasons))
             else:

@@ -16,6 +16,12 @@ COLOR_MATCH = os.environ.get("WEDDING_V3_COLOR_MATCH", "0").strip().lower() in (
     "true",
     "yes",
 )
+# Crop-fill 16:9 (no letterbox bars) for graphic consistency.
+FRAME_FILL = os.environ.get("WEDDING_V3_FRAME_FILL", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+)
 # V24: slightly stronger adjacent exposure bridge (paired with milder ranking continuity).
 CONTINUITY_SOFT_V2 = os.environ.get("WEDDING_V3_CONTINUITY_SOFT_V2", "0").strip().lower() in (
     "1",
@@ -113,11 +119,17 @@ def extract_shot(pick: RankedPick, out: Path, prev_shot=None) -> Path:
     src_dur = min(src_dur, max(0.4, shot.end - start - 0.02))
 
     grade = _grade(beat.role, shot=shot, prev_shot=prev_shot)
-    # Letterbox/pillarbox to 1280x720 — safe for portrait phone clips (WhatsApp etc.).
-    geom = (
-        "scale=1280:720:force_original_aspect_ratio=decrease,"
-        "pad=1280:720:(ow-iw)/2:(oh-ih)/2:black"
-    )
+    # Same graphic frame for every clip: 1280x720 crop-fill (no vertical pillarbox mix).
+    if FRAME_FILL:
+        geom = (
+            "scale=1280:720:force_original_aspect_ratio=increase,"
+            "crop=1280:720"
+        )
+    else:
+        geom = (
+            "scale=1280:720:force_original_aspect_ratio=decrease,"
+            "pad=1280:720:(ow-iw)/2:(oh-ih)/2:black"
+        )
     if isinstance(geom, tuple):
         geom = "".join(geom)
     vf = f"{geom},{grade},fps=30,format=yuv420p"
@@ -148,9 +160,25 @@ def extract_shot(pick: RankedPick, out: Path, prev_shot=None) -> Path:
 
 
 def _should_xfade(prev: RankedPick, curr: RankedPick) -> bool:
-    """Real crossfade only on soft boundaries; hard cuts at peaks."""
+    """Real crossfade only on soft boundaries; hard cuts at peaks / party."""
     if curr.beat.is_peak or prev.beat.is_peak:
         return False
+    prev_phase = getattr(prev.beat, "story_phase", "") or ""
+    curr_phase = getattr(curr.beat, "story_phase", "") or ""
+    # Day-story: soft inside prep/outro; hard when entering celebration climax.
+    if prev_phase and curr_phase:
+        if prev_phase != curr_phase:
+            # Soft dissolve into ceremony; hard jump into after-party energy.
+            if {prev_phase, curr_phase} == {"before", "during"}:
+                return True
+            if curr_phase == "after":
+                return False
+            if curr_phase == "outro" or prev_phase == "intro":
+                return True
+        elif curr_phase in ("intro", "before", "outro"):
+            return bool(prev.beat.want_xfade or curr.beat.want_xfade)
+        elif curr_phase in ("during", "after"):
+            return bool(curr.beat.want_xfade and prev.beat.want_xfade and not curr.beat.is_peak)
     soft_sections = ("intro", "outro", "build")
     # Intro/outro: dissolve if either beat planned an xfade (asymmetric soft edges OK).
     if prev.beat.section in soft_sections or curr.beat.section in soft_sections:
@@ -248,13 +276,17 @@ def render_montage(
         part = work / f"{i:03d}_{pick.beat.role}.mp4"
         prev = picks[i - 1].shot if i > 0 else None
         extract_shot(pick, part, prev_shot=prev)
-        # pad/trim exact duration for xfade stability
+        # Pad short extracts up to planned beat.dur so xfade math / timeline hold.
         exact = work / f"{i:03d}_exact.mp4"
+        need = max(0.45, float(pick.beat.dur))
         try:
+            got = _probe_duration(part)
+            pad = max(0.0, need - got + 0.02)
             run([
                 "ffmpeg", "-y", "-i", str(part),
-                "-t", f"{pick.beat.dur:.3f}",
-                "-vf", "fps=30,format=yuv420p,tpad=stop_mode=clone:stop_duration=0",
+                "-t", f"{need:.3f}",
+                "-vf",
+                f"fps=30,format=yuv420p,tpad=stop_mode=clone:stop_duration={pad:.3f}",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
                 "-an", str(exact),
             ])
@@ -265,10 +297,27 @@ def render_montage(
             # Keep the extract as-is if the exact pass fails (portrait/phone clips).
             parts.append(part)
 
+    planned = float(sum(max(0.35, float(p.beat.dur)) for p in picks))
     if use_xfade and len(parts) >= 2 and any(
         _should_xfade(picks[i - 1], picks[i]) for i in range(1, len(picks))
     ):
         silent = _assemble_with_selective_xfade(picks, parts, work)
+        try:
+            got = _probe_duration(silent)
+        except Exception:
+            got = 0.0
+        # Xfade eats timeline; if we lost >3s vs plan, hard-concat instead
+        # (prefer real cuts over a long freeze-frame pad).
+        if got + 3.0 < planned:
+            lst = work / "list_hard.txt"
+            lst.write_text(
+                "".join(f"file '{p.as_posix()}'\n" for p in parts), encoding="utf-8"
+            )
+            silent = work / "silent_hard.mp4"
+            run([
+                "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst),
+                "-c", "copy", str(silent),
+            ])
     else:
         # Hard-cut concat (peaks / energetic / xfade disabled)
         lst = work / "list.txt"
@@ -286,7 +335,19 @@ def render_montage(
     try:
         vid_dur = max(1.0, _probe_duration(silent))
     except Exception:
-        vid_dur = float(sum(max(0.35, float(p.beat.dur)) for p in picks))
+        vid_dur = planned
+    # Tiny end pad only (<2.5s) if concat rounding left a gap; never multi-minute freeze.
+    if 0.15 < (planned - vid_dur) <= 2.5:
+        padded = work / "silent_endpad.mp4"
+        pad = planned - vid_dur
+        run([
+            "ffmpeg", "-y", "-i", str(silent),
+            "-vf", f"tpad=stop_mode=clone:stop_duration={pad:.3f}",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
+            "-an", str(padded),
+        ])
+        silent = padded
+        vid_dur = planned
     run([
         "ffmpeg", "-y", "-i", str(silent), "-i", str(audio),
         "-filter_complex",

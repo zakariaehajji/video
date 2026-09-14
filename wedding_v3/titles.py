@@ -115,16 +115,28 @@ def bookend_silent(silent: Path, work: Path) -> Path:
     work.mkdir(parents=True, exist_ok=True)
     intro = make_title_card(
         work / "title_intro.mp4",
-        line1="A Wedding Film",
-        line2="Together",
+        line1="Our Wedding Day"
+        if os.environ.get("WEDDING_V3_STORY_PHASES", "0").strip().lower()
+        in ("1", "true", "yes")
+        else "A Wedding Film",
+        line2="Before · During · After"
+        if os.environ.get("WEDDING_V3_STORY_PHASES", "0").strip().lower()
+        in ("1", "true", "yes")
+        else "Together",
         duration=INTRO_DUR,
         fade_in=0.35,
         fade_out=0.5,
     )
     outro = make_title_card(
         work / "title_outro.mp4",
-        line1="The Beginning",
-        line2="",
+        line1="Forever Starts Here"
+        if os.environ.get("WEDDING_V3_STORY_PHASES", "0").strip().lower()
+        in ("1", "true", "yes")
+        else "The Beginning",
+        line2="Thank You"
+        if os.environ.get("WEDDING_V3_STORY_PHASES", "0").strip().lower()
+        in ("1", "true", "yes")
+        else "",
         duration=OUTRO_DUR,
         fade_in=0.4,
         fade_out=0.65,

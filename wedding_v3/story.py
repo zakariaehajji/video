@@ -8,6 +8,13 @@ from typing import Any
 
 from wedding_v3.music import MusicAnalysis
 from wedding_v3.shots import Shot
+from wedding_v3.story_phases import (
+    hard_cut_phases,
+    phase_at_time,
+    phase_role_prefs,
+    soft_xfade_phases,
+    story_phases_enabled,
+)
 
 # V5 experiment gate: set WEDDING_V3_PACE_HOLD=1 to enforce min shot holds.
 # Default off so V4_xfade and baseline V3 behavior stay comparable.
@@ -150,6 +157,7 @@ class PlannedBeat:
     want_slowmo: bool
     want_xfade: bool
     is_peak: bool
+    story_phase: str = ""  # intro|before|during|after|outro when story_phases on
 
 
 def _section_energy(analysis: MusicAnalysis, start: float, end: float) -> float:
@@ -308,6 +316,14 @@ def plan_story(
                 snap_hi = max(2.8, base + 0.4)
 
             while t < s1 - 0.45:
+                phase = ""
+                if story_phases_enabled(craft):
+                    phase = phase_at_time((t + min(s1, t + base)) / 2.0, duration, craft)
+                    phase_prefs = [
+                        r for r in phase_role_prefs(phase, craft) if r in available_roles
+                    ]
+                    if phase_prefs:
+                        prefs = phase_prefs
                 role = _select_section_role(prefs, idx, energy, label)
                 dur = base
                 if PACE_HOLD_FLOOR:
@@ -333,10 +349,16 @@ def plan_story(
                     if 0 < rem < min_dur * 0.75:
                         end = s1
 
+                if story_phases_enabled(craft) and not phase:
+                    phase = phase_at_time((t + end) / 2.0, duration, craft)
+
                 near_peak = any(abs((t + end) / 2 - p) < 1.2 for p in peaks) or label == "peak"
                 is_peak = label == "peak" or (
                     near_peak and label in ("chorus", "verse", "build")
                 )
+                # Keep ceremony climax preference in the during phase.
+                if story_phases_enabled(craft) and phase == "during" and role == "couple":
+                    is_peak = is_peak or near_peak
                 want_slow = is_peak and role in ("couple", "portrait") and energy > 0.45
                 soft = craft_xfade or {"intro", "outro", "build"}
                 want_xfade = (
@@ -345,6 +367,13 @@ def plan_story(
                     and style != "energetic"
                     and not (is_peak and craft_hard_peak)
                 )
+                if story_phases_enabled(craft) and phase:
+                    soft_p = soft_xfade_phases(craft)
+                    hard_p = hard_cut_phases(craft)
+                    if phase in soft_p:
+                        want_xfade = True and not (is_peak and craft_hard_peak and phase == "during")
+                    if phase in hard_p and is_peak:
+                        want_xfade = False
 
                 beats.append(
                     PlannedBeat(
@@ -357,6 +386,7 @@ def plan_story(
                         want_slowmo=want_slow,
                         want_xfade=want_xfade,
                         is_peak=is_peak,
+                        story_phase=phase,
                     )
                 )
                 t = end
@@ -388,6 +418,7 @@ def plan_story(
                             want_slowmo=slow,
                             want_xfade=b.want_xfade,
                             is_peak=b.is_peak,
+                            story_phase=getattr(b, "story_phase", "") or "",
                         )
                     )
             beats = capped
@@ -409,6 +440,7 @@ def plan_story(
                     want_slowmo=False,
                     want_xfade=True,
                     is_peak=False,
+                    story_phase="outro" if story_phases_enabled(craft) else "",
                 )
             )
         return beats
